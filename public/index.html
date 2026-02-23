@@ -332,7 +332,14 @@
 
     // Parse novel
     async function parseNovel() {
-      if (!currentJob) return;
+      if (!currentJob) {
+        alert('请先上传小说');
+        return;
+      }
+      
+      const btn = document.getElementById('btn-parse');
+      btn.textContent = '📖 解析中...';
+      btn.disabled = true;
       
       try {
         const response = await fetch(`${API_BASE}/api/novel/parse/${currentJob.id}`, {
@@ -340,10 +347,19 @@
         });
         
         const data = await response.json();
-        alert('小说解析成功！');
-        loadJob(currentJob.id);
+        
+        if (response.ok) {
+          alert('小说解析成功！预估 ' + (data.estimatedEpisodes || 7) + ' 集');
+          await loadJob(currentJob.id);
+        } else {
+          alert('解析失败：' + (data.error || '未知错误'));
+          btn.textContent = '📖 解析小说';
+          btn.disabled = false;
+        }
       } catch (err) {
         alert('解析失败：' + err.message);
+        btn.textContent = '📖 解析小说';
+        btn.disabled = false;
       }
     }
 
@@ -366,10 +382,17 @@
 
     // Generate script
     async function generateScript() {
-      if (!currentJob) return;
+      if (!currentJob) {
+        alert('请先上传并解析小说');
+        return;
+      }
       
       const episodes = prompt('生成几集剧本？', currentJob.storyBible?.estimatedEpisodes || 7);
       if (!episodes) return;
+      
+      const btn = document.getElementById('btn-script');
+      btn.textContent = '🎬 生成中...';
+      btn.disabled = true;
       
       try {
         const response = await fetch(`${API_BASE}/api/script/generate/${currentJob.id}`, {
@@ -379,16 +402,32 @@
         });
         
         const data = await response.json();
-        alert('剧本生成任务已启动');
-        loadJob(currentJob.id);
+        
+        if (response.ok) {
+          alert('剧本生成成功！');
+          await loadJob(currentJob.id);
+        } else {
+          alert('生成失败：' + (data.error || '未知错误'));
+          btn.textContent = '🎬 生成剧本';
+          btn.disabled = false;
+        }
       } catch (err) {
         alert('请求失败：' + err.message);
+        btn.textContent = '🎬 生成剧本';
+        btn.disabled = false;
       }
     }
 
     // Generate storyboard
     async function generateStoryboard() {
-      if (!currentJob) return;
+      if (!currentJob) {
+        alert('请先上传并解析小说');
+        return;
+      }
+      
+      const btn = document.getElementById('btn-storyboard');
+      btn.textContent = '🎥 生成中...';
+      btn.disabled = true;
       
       try {
         const response = await fetch(`${API_BASE}/api/storyboard/generate/${currentJob.id}`, {
@@ -397,10 +436,20 @@
           body: JSON.stringify({ mode: 'A' })
         });
         
-        alert('分镜生成任务已启动');
-        loadJob(currentJob.id);
+        const data = await response.json();
+        
+        if (response.ok) {
+          alert('分镜生成成功！');
+          await loadJob(currentJob.id);
+        } else {
+          alert('生成失败：' + (data.error || '未知错误'));
+          btn.textContent = '🎥 生成分镜';
+          btn.disabled = false;
+        }
       } catch (err) {
         alert('请求失败：' + err.message);
+        btn.textContent = '🎥 生成分镜';
+        btn.disabled = false;
       }
     }
 
