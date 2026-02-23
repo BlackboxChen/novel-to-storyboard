@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Story Flow - 小说转漫剧工作流</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  <div id="app" class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold flex items-center gap-3">
+        <span class="text-4xl">🦞</span>
+        Story Flow
+      </h1>
+      <p class="text-gray-400 mt-2">小说 → 漫剧剧本 → AI视频分镜</p>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="flex gap-4 mb-6 border-b border-gray-700 pb-4">
+      <button onclick="showTab('upload')" id="tab-upload" class="tab-btn px-4 py-2 rounded-t font-medium hover:bg-gray-700">
+        📤 上传小说
+      </button>
+      <button onclick="showTab('jobs')" id="tab-jobs" class="tab-btn px-4 py-2 rounded-t font-medium hover:bg-gray-700">
+        📋 任务列表
+      </button>
+      <button onclick="showTab('editor')" id="tab-editor" class="tab-btn px-4 py-2 rounded-t font-medium hover:bg-gray-700">
+        ✏️ 剧本编辑
+      </button>
+    </nav>
+
+    <!-- Upload Tab -->
+    <div id="panel-upload" class="tab-panel">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">上传小说文件</h2>
+        
+        <form id="upload-form" class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">作品标题</label>
+              <input type="text" id="novel-title" class="w-full bg-gray-700 rounded px-3 py-2" placeholder="可选，默认使用文件名">
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">输出风格</label>
+              <select id="novel-style" class="w-full bg-gray-700 rounded px-3 py-2">
+                <option value="narrated">解说漫（旁白驱动）</option>
+                <option value="storyboard">分格漫剧（画面驱动）</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer" 
+               onclick="document.getElementById('file-input').click()"
+               id="drop-zone">
+            <input type="file" id="file-input" accept=".txt,.md" class="hidden" onchange="handleFileSelect(event)">
+            <div class="text-4xl mb-2">📄</div>
+            <p class="text-gray-400">点击或拖拽上传小说文件 (.txt, .md)</p>
+            <p id="file-name" class="text-blue-400 mt-2 hidden"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">或直接粘贴内容</label>
+            <textarea id="novel-content" class="w-full bg-gray-700 rounded px-3 py-2 h-40" 
+                      placeholder="粘贴小说文本..."></textarea>
+          </div>
+
+          <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg font-medium transition-colors">
+            开始处理
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Jobs Tab -->
+    <div id="panel-jobs" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">任务列表</h2>
+          <button onclick="loadJobs()" class="text-sm bg-gray-700 px-3 py-1 rounded hover:bg-gray-600">
+            🔄 刷新
+          </button>
+        </div>
+        
+        <div id="jobs-list" class="space-y-3">
+          <p class="text-gray-500 text-center py-8">加载中...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Editor Tab -->
+    <div id="panel-editor" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div id="editor-placeholder" class="text-center py-12 text-gray-500">
+          请先从任务列表选择一个任务进行编辑
+        </div>
+        <div id="editor-content" class="hidden">
+          <div class="flex justify-between items-center mb-4">
+            <h2 id="editor-title" class="text-xl font-semibold"></h2>
+            <div class="flex gap-2">
+              <button onclick="generateScript()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">
+                🎬 生成剧本
+              </button>
+              <button onclick="generateStoryboard()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded">
+                🎥 生成分镜
+              </button>
+              <button onclick="exportJob('json')" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded">
+                📥 导出
+              </button>
+            </div>
+          </div>
+          
+          <div id="job-status" class="mb-4 p-3 bg-gray-700 rounded text-sm"></div>
+          
+          <!-- Episodes -->
+          <div id="episodes-container" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    let currentJob = null;
+
+    // Tab switching
+    function showTab(tabName) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('bg-gray-700'));
+      document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+      document.getElementById(`tab-${tabName}`).classList.add('bg-gray-700');
+      
+      if (tabName === 'jobs') loadJobs();
+    }
+
+    // File handling
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        document.getElementById('file-name').textContent = file.name;
+        document.getElementById('file-name').classList.remove('hidden');
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          document.getElementById('novel-content').value = e.target.result;
+        };
+        reader.readAsText(file);
+      }
+    }
+
+    // Drag and drop
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-blue-500');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-blue-500');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-blue-500');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        document.getElementById('file-name').textContent = file.name;
+        document.getElementById('file-name').classList.remove('hidden');
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          document.getElementById('novel-content').value = ev.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    // Upload form
+    document.getElementById('upload-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const title = document.getElementById('novel-title').value;
+      const style = document.getElementById('novel-style').value;
+      const content = document.getElementById('novel-content').value;
+      
+      if (!content.trim()) {
+        alert('请上传文件或粘贴小说内容');
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/api/novel/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, style, content })
+        });
+        
+        const data = await response.json();
+        if (data.jobId) {
+          alert(`上传成功！字数：${data.wordCount}`);
+          currentJob = { id: data.jobId, title: data.title };
+          showTab('editor');
+          loadJob(data.jobId);
+        } else {
+          alert('上传失败：' + (data.error || '未知错误'));
+        }
+      } catch (err) {
+        alert('请求失败：' + err.message);
+      }
+    });
+
+    // Load jobs list
+    async function loadJobs() {
+      const listEl = document.getElementById('jobs-list');
+      listEl.innerHTML = '<p class="text-gray-500 text-center py-8">加载中...</p>';
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/jobs`);
+        const data = await response.json();
+        
+        if (data.jobs.length === 0) {
+          listEl.innerHTML = '<p class="text-gray-500 text-center py-8">暂无任务</p>';
+          return;
+        }
+        
+        listEl.innerHTML = data.jobs.map(job => `
+          <div class="bg-gray-700 rounded-lg p-4 flex justify-between items-center">
+            <div>
+              <h3 class="font-medium">${job.title}</h3>
+              <p class="text-sm text-gray-400">${job.status} · ${new Date(job.createdAt).toLocaleString()}</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="loadJob('${job.id}')" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">
+                编辑
+              </button>
+              <button onclick="deleteJob('${job.id}')" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm">
+                删除
+              </button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        listEl.innerHTML = `<p class="text-red-400 text-center py-8">加载失败：${err.message}</p>`;
+      }
+    }
+
+    // Load single job
+    async function loadJob(jobId) {
+      try {
+        const response = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+        currentJob = await response.json();
+        
+        document.getElementById('editor-placeholder').classList.add('hidden');
+        document.getElementById('editor-content').classList.remove('hidden');
+        document.getElementById('editor-title').textContent = currentJob.title;
+        
+        updateJobStatus();
+        renderEpisodes();
+        
+        showTab('editor');
+      } catch (err) {
+        alert('加载失败：' + err.message);
+      }
+    }
+
+    // Delete job
+    async function deleteJob(jobId) {
+      if (!confirm('确定删除此任务？')) return;
+      
+      try {
+        await fetch(`${API_BASE}/api/jobs/${jobId}`, { method: 'DELETE' });
+        loadJobs();
+      } catch (err) {
+        alert('删除失败：' + err.message);
+      }
+    }
+
+    // Update status display
+    function updateJobStatus() {
+      if (!currentJob) return;
+      
+      const statusMap = {
+        'uploaded': '已上传，等待解析',
+        'parsing': '正在解析小说...',
+        'parsed': '小说已解析',
+        'generating_script': '正在生成剧本...',
+        'script_ready': '剧本已生成',
+        'generating_storyboard': '正在生成分镜...',
+        'storyboard_ready': '分镜已生成'
+      };
+      
+      const statusEl = document.getElementById('job-status');
+      statusEl.innerHTML = `
+        <span class="font-medium">状态：</span>${statusMap[currentJob.status] || currentJob.status}
+        ${currentJob.novel ? `· 字数：${currentJob.novel.wordCount}` : ''}
+        ${currentJob.storyBible?.estimatedEpisodes ? `· 预估集数：${currentJob.storyBible.estimatedEpisodes}` : ''}
+      `;
+    }
+
+    // Render episodes
+    function renderEpisodes() {
+      const container = document.getElementById('episodes-container');
+      
+      if (!currentJob?.script?.episodes?.length) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-8">暂无剧本内容，点击"生成剧本"开始</p>';
+        return;
+      }
+      
+      container.innerHTML = currentJob.script.episodes.map(ep => `
+        <div class="bg-gray-700 rounded-lg p-4">
+          <h3 class="font-medium mb-2">第 ${ep.number} 集</h3>
+          <textarea class="w-full bg-gray-800 rounded p-3 h-40" data-episode="${ep.number}">${ep.content || ''}</textarea>
+        </div>
+      `).join('');
+    }
+
+    // Generate script
+    async function generateScript() {
+      if (!currentJob) return;
+      
+      const episodes = prompt('生成几集剧本？', currentJob.storyBible?.estimatedEpisodes || 7);
+      if (!episodes) return;
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/script/generate/${currentJob.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ episodes: parseInt(episodes) })
+        });
+        
+        const data = await response.json();
+        alert('剧本生成任务已启动');
+        loadJob(currentJob.id);
+      } catch (err) {
+        alert('请求失败：' + err.message);
+      }
+    }
+
+    // Generate storyboard
+    async function generateStoryboard() {
+      if (!currentJob) return;
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/storyboard/generate/${currentJob.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'A' })
+        });
+        
+        alert('分镜生成任务已启动');
+        loadJob(currentJob.id);
+      } catch (err) {
+        alert('请求失败：' + err.message);
+      }
+    }
+
+    // Export
+    function exportJob(format) {
+      if (!currentJob) return;
+      window.open(`${API_BASE}/api/export/${currentJob.id}/${format}`, '_blank');
+    }
+
+    // Initialize
+    showTab('upload');
+  </script>
+</body>
+</html>
