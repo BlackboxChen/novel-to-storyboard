@@ -101,10 +101,13 @@
           <div class="flex justify-between items-center mb-4">
             <h2 id="editor-title" class="text-xl font-semibold"></h2>
             <div class="flex gap-2">
-              <button onclick="generateScript()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">
+              <button onclick="parseNovel()" id="btn-parse" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
+                📖 解析小说
+              </button>
+              <button onclick="generateScript()" id="btn-script" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded opacity-50 cursor-not-allowed" disabled>
                 🎬 生成剧本
               </button>
-              <button onclick="generateStoryboard()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded">
+              <button onclick="generateStoryboard()" id="btn-storyboard" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded opacity-50 cursor-not-allowed" disabled>
                 🎥 生成分镜
               </button>
               <button onclick="exportJob('json')" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded">
@@ -295,6 +298,52 @@
         ${currentJob.novel ? `· 字数：${currentJob.novel.wordCount}` : ''}
         ${currentJob.storyBible?.estimatedEpisodes ? `· 预估集数：${currentJob.storyBible.estimatedEpisodes}` : ''}
       `;
+      
+      // 更新按钮状态
+      const btnParse = document.getElementById('btn-parse');
+      const btnScript = document.getElementById('btn-script');
+      const btnStoryboard = document.getElementById('btn-storyboard');
+      
+      if (currentJob.status === 'uploaded') {
+        btnParse.disabled = false;
+        btnParse.classList.remove('opacity-50', 'cursor-not-allowed');
+        btnScript.disabled = true;
+        btnScript.classList.add('opacity-50', 'cursor-not-allowed');
+        btnStoryboard.disabled = true;
+        btnStoryboard.classList.add('opacity-50', 'cursor-not-allowed');
+      } else if (currentJob.status === 'parsed' || currentJob.status === 'script_ready') {
+        btnParse.disabled = true;
+        btnParse.classList.add('opacity-50', 'cursor-not-allowed');
+        btnScript.disabled = false;
+        btnScript.classList.remove('opacity-50', 'cursor-not-allowed');
+        btnStoryboard.disabled = false;
+        btnStoryboard.classList.remove('opacity-50', 'cursor-not-allowed');
+      } else {
+        // 正在处理中
+        btnParse.disabled = true;
+        btnParse.classList.add('opacity-50', 'cursor-not-allowed');
+        btnScript.disabled = true;
+        btnScript.classList.add('opacity-50', 'cursor-not-allowed');
+        btnStoryboard.disabled = true;
+        btnStoryboard.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+    }
+
+    // Parse novel
+    async function parseNovel() {
+      if (!currentJob) return;
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/novel/parse/${currentJob.id}`, {
+          method: 'POST'
+        });
+        
+        const data = await response.json();
+        alert('小说解析成功！');
+        loadJob(currentJob.id);
+      } catch (err) {
+        alert('解析失败：' + err.message);
+      }
     }
 
     // Render episodes
