@@ -6,8 +6,8 @@
 // 使用 Node.js 内置 fetch（Node 18+）
 const fetch = globalThis.fetch;
 
-const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY || 'a818895d10ae48839bdc60f9f20cde41.fWmvkefUzz6Tm9uB';
-const ZHIPU_BASE_URL = 'https://open.bigmodel.cn/api/anthropic';
+const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY || '7bb3307a265a4331b3e1e550d3312318.ur46BnAFpgdH7vPa';
+const ZHIPU_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 
 export class LLMService {
   constructor() {
@@ -16,19 +16,18 @@ export class LLMService {
   }
 
   /**
-   * 调用 LLM API (Anthropic 格式)
+   * 调用 LLM API (智谱原生格式)
    */
   async chat(messages, options = {}) {
     try {
-      const response = await fetch(`${this.baseUrl}/v1/messages`, {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01'
+          'Authorization': `Bearer ${this.apiKey}`
         },
         body: JSON.stringify({
-          model: options.model || 'glm-4',
+          model: options.model || 'glm-5',
           max_tokens: options.maxTokens || 4096,
           messages,
           ...options
@@ -41,7 +40,7 @@ export class LLMService {
       }
 
       const data = await response.json();
-      return data.content[0].text;
+      return data.choices[0].message.content;
     } catch (error) {
       console.error('LLM API call failed:', error);
       throw error;
@@ -111,9 +110,11 @@ ${novelContent.slice(0, 15000)}`;
       }
       jsonStr = jsonStr.trim();
       
-      // 尝试修复常见 JSON 错误
-      // 修复缺少引号的问题：",xxx" -> ","xxx"
-      jsonStr = jsonStr.replace(/",([^"[].*?)"/g, '","$1"');
+      // 修复 JSON 中的控制字符（\n, \t 等）
+      // 将实际的换行符替换为 \\n（字符串形式）
+      jsonStr = jsonStr.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+      // 然后恢复 JSON 字符串值内部的转义
+      jsonStr = jsonStr.replace(/\\\\n/g, '\\n').replace(/\\\\r/g, '\\r').replace(/\\\\t/g, '\\t');
       
       const parsed = JSON.parse(jsonStr);
       return parsed;
