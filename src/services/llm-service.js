@@ -3,7 +3,8 @@
  * 支持智谱 GLM API
  */
 
-import fetch from 'node-fetch';
+// 使用 Node.js 内置 fetch（Node 18+）
+const fetch = globalThis.fetch;
 
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY || 'a818895d10ae48839bdc60f9f20cde41.fWmvkefUzz6Tm9uB';
 const ZHIPU_BASE_URL = 'https://open.bigmodel.cn/api/anthropic';
@@ -110,20 +111,46 @@ ${novelContent.slice(0, 15000)}`;
       }
       jsonStr = jsonStr.trim();
       
-      return JSON.parse(jsonStr);
+      // 尝试修复常见 JSON 错误
+      // 修复缺少引号的问题：",xxx" -> ","xxx"
+      jsonStr = jsonStr.replace(/",([^"[].*?)"/g, '","$1"');
+      
+      const parsed = JSON.parse(jsonStr);
+      return parsed;
     } catch (e) {
-      console.error('Failed to parse LLM response as JSON:', e);
+      console.error('Failed to parse LLM response as JSON:', e.message);
       console.log('Raw response:', response.slice(0, 500));
       
-      // 返回基础结构
-      return {
-        title,
-        characters: [],
-        events: [],
-        turningPoints: [],
-        estimatedEpisodes: Math.ceil(novelContent.length / 1000),
-        raw: response
-      };
+      // 尝试从 raw 中提取关键信息
+      try {
+        // 提取 characters
+        const charMatch = response.match(/"characters":\s*\[([\s\S]*?)\]/);
+        const eventMatch = response.match(/"events":\s*\[([\s\S]*?)\]/);
+        const epMatch = response.match(/"estimatedEpisodes":\s*(\d+)/);
+        const themeMatch = response.match(/"mainTheme":\s*"([^"]+)"/);
+        
+        return {
+          title,
+          characters: charMatch ? [] : [{ id: 'C01', name: '主角', role: 'protagonist', traits: [] }],
+          events: [],
+          turningPoints: [],
+          estimatedEpisodes: epMatch ? parseInt(epMatch[1]) : Math.ceil(novelContent.length / 1000),
+          mainTheme: themeMatch ? themeMatch[1] : '',
+          raw: response,
+          parseError: e.message
+        };
+      } catch (e2) {
+        // 返回基础结构
+        return {
+          title,
+          characters: [],
+          events: [],
+          turningPoints: [],
+          estimatedEpisodes: Math.ceil(novelContent.length / 1000),
+          raw: response,
+          parseError: e.message
+        };
+      }
     }
   }
 

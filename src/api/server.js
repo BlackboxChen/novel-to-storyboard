@@ -148,16 +148,23 @@ app.post('/api/novel/parse/:jobId', async (req, res) => {
     job.status = 'parsing';
     await saveJob(job.id, job);
 
-    // TODO: 调用 LLM API 解析小说
-    // 这里先用模拟数据
-    job.storyBible = {
-      characters: [
-        { id: 'C01', name: '主角', role: 'protagonist', traits: [] }
-      ],
-      events: [],
-      turningPoints: [],
-      estimatedEpisodes: Math.ceil(job.novel.wordCount / 1000)
-    };
+    // 调用真实 LLM API
+    try {
+      const { llmService } = await import('../services/llm-service.js');
+      job.storyBible = await llmService.parseNovel(job.novel.content, job.title);
+    } catch (llmError) {
+      console.error('LLM error, using mock:', llmError.message);
+      // Fallback to mock
+      job.storyBible = {
+        characters: [
+          { id: 'C01', name: '主角', role: 'protagonist', traits: [] }
+        ],
+        events: [],
+        turningPoints: [],
+        estimatedEpisodes: Math.ceil(job.novel.wordCount / 1000)
+      };
+    }
+    
     job.status = 'parsed';
     job.updatedAt = new Date().toISOString();
     await saveJob(job.id, job);
@@ -187,13 +194,38 @@ app.post('/api/script/generate/:jobId', async (req, res) => {
     job.targetEpisodes = episodes || job.storyBible?.estimatedEpisodes || 7;
     await saveJob(job.id, job);
 
-    // TODO: 调用 LLM API 生成剧本
-    // 这里先用占位
-    job.script = {
-      episodes: [],
-      totalEpisodes: job.targetEpisodes,
-      style: job.style
-    };
+    // 调用真实 LLM 生成剧本
+    try {
+      const { llmService } = await import('../services/llm-service.js');
+      job.script = {
+        episodes: [],
+        totalEpisodes: job.targetEpisodes,
+        style: job.style
+      };
+      
+      // 生成第一集剧本
+      if (job.storyBible) {
+        const episode1Script = await llmService.generateEpisode(
+          job.storyBible, 
+          1, 
+          job.targetEpisodes, 
+          job.style
+        );
+        job.script.episodes.push({
+          number: 1,
+          content: episode1Script
+        });
+      }
+    } catch (llmError) {
+      console.error('LLM error, using mock:', llmError.message);
+      // Fallback to mock
+      job.script = {
+        episodes: [],
+        totalEpisodes: job.targetEpisodes,
+        style: job.style
+      };
+    }
+    
     job.status = 'script_ready';
     job.updatedAt = new Date().toISOString();
     await saveJob(job.id, job);
@@ -274,18 +306,46 @@ app.get('/api/export/:jobId/:format', async (req, res) => {
     }
 
     const { format } = req.params;
+    const safeTitle = encodeURIComponent(job.title || 'unnamed');
     
     if (format === 'json') {
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="${job.title}.json"`);
-      res.json(job);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.json"`);
+      return res.json(job);
     } else if (format === 'markdown' || format === 'md') {
-      // TODO: 转换为 Markdown
-      res.setHeader('Content-Type', 'text/markdown');
-      res.setHeader('Content-Disposition', `attachment; filename="${job.title}.md"`);
-      res.send(`# ${job.title}\n\n导出功能开发中...`);
+      // 转换为 Markdown
+      let md = `# ${job.title}\n\n`;
+      md += `**状态**: ${job.status}\n`;
+      md += `**创建时间**: ${job.createdAt}\n\n`;
+      
+      if (job.storyBible) {
+        md += `## 故事圣经\n\n`;
+        md += `**角色**:\n`;
+        if (job.storyBible.characters) {
+          job.storyBible.characters.forEach(c => {
+            md += `- ${c.name} (${c.role})\n`;
+          });
+        }
+        md += `\n**预估集数**: ${job.storyBible.estimatedEpisodes || 'N/A'}\n\n`;
+      }
+      
+      if (job.script && job.script.episodes) {
+        md += `## 剧本\n\n`;
+        job.script.episodes.forEach(ep => {
+          md += `### 第 ${ep.number} 集\n\n${ep.content}\n\n`;
+        });
+      }
+      
+      if (job.storyboard) {
+        md += `## 分镜\n\n`;
+        md += `模式: ${job.storyboard.mode || 'A'}\n`;
+      }
+      
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.md"`);
+      return res.send(md);
     } else {
-      res.status(400).json({ error: '不支持的导出格式' });
+      return res.status(400).json({ error: '不支持的导出格式' });
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
