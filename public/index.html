@@ -8,29 +8,46 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     [x-cloak] { display: none !important; }
+    .tab-btn.active { background-color: rgb(55, 65, 81); }
+    .beat-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; }
+    .clip-card { transition: all 0.2s ease; }
+    .clip-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .prompt-box { font-family: monospace; font-size: 0.85rem; white-space: pre-wrap; }
   </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
-  <div id="app" class="max-w-6xl mx-auto p-6">
+  <div id="app" class="max-w-7xl mx-auto p-6">
     <!-- Header -->
-    <header class="mb-8">
+    <header class="mb-6">
       <h1 class="text-3xl font-bold flex items-center gap-3">
         <span class="text-4xl">🦞</span>
         Story Flow
       </h1>
-      <p class="text-gray-400 mt-2">小说 → 漫剧剧本 → AI视频分镜</p>
+      <p class="text-gray-400 mt-2">小说 → 故事圣经 → 分集架构 → 剧本 → 分镜 → 资产</p>
     </header>
 
     <!-- Navigation -->
-    <nav class="flex gap-4 mb-6 border-b border-gray-700 pb-4">
-      <button onclick="showTab('upload')" id="tab-upload" class="tab-btn px-4 py-2 rounded-t font-medium hover:bg-gray-700">
-        📤 上传小说
+    <nav class="flex gap-2 mb-6 border-b border-gray-700 pb-4 flex-wrap">
+      <button onclick="showTab('upload')" id="tab-upload" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700 active">
+        📤 上传
       </button>
-      <button onclick="showTab('jobs')" id="tab-jobs" class="tab-btn px-4 py-2 rounded-t font-medium hover:bg-gray-700">
-        📋 任务列表
+      <button onclick="showTab('jobs')" id="tab-jobs" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700">
+        📋 任务
       </button>
-      <button onclick="showTab('editor')" id="tab-editor" class="tab-btn px-4 py-2 rounded-t font-medium hover:bg-gray-700">
-        ✏️ 剧本编辑
+      <button onclick="showTab('storybible')" id="tab-storybible" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700">
+        📖 故事圣经
+      </button>
+      <button onclick="showTab('architecture')" id="tab-architecture" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700">
+        🏗️ 分集架构
+      </button>
+      <button onclick="showTab('script')" id="tab-script" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700">
+        🎬 剧本
+      </button>
+      <button onclick="showTab('storyboard')" id="tab-storyboard" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700">
+        🎥 分镜
+      </button>
+      <button onclick="showTab('assets')" id="tab-assets" class="tab-btn px-4 py-2 rounded font-medium hover:bg-gray-700">
+        🎨 资产
       </button>
     </nav>
 
@@ -38,7 +55,7 @@
     <div id="panel-upload" class="tab-panel">
       <div class="bg-gray-800 rounded-lg p-6">
         <h2 class="text-xl font-semibold mb-4">上传小说文件</h2>
-        
+
         <form id="upload-form" class="space-y-4">
           <div class="grid grid-cols-2 gap-4">
             <div>
@@ -54,7 +71,7 @@
             </div>
           </div>
 
-          <div class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer" 
+          <div class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer"
                onclick="document.getElementById('file-input').click()"
                id="drop-zone">
             <input type="file" id="file-input" accept=".txt,.md" class="hidden" onchange="handleFileSelect(event)">
@@ -65,7 +82,7 @@
 
           <div>
             <label class="block text-sm text-gray-400 mb-1">或直接粘贴内容</label>
-            <textarea id="novel-content" class="w-full bg-gray-700 rounded px-3 py-2 h-40" 
+            <textarea id="novel-content" class="w-full bg-gray-700 rounded px-3 py-2 h-40"
                       placeholder="粘贴小说文本..."></textarea>
           </div>
 
@@ -85,43 +102,211 @@
             🔄 刷新
           </button>
         </div>
-        
+
         <div id="jobs-list" class="space-y-3">
           <p class="text-gray-500 text-center py-8">加载中...</p>
         </div>
       </div>
     </div>
 
-    <!-- Editor Tab -->
-    <div id="panel-editor" class="tab-panel hidden">
+    <!-- Story Bible Tab -->
+    <div id="panel-storybible" class="tab-panel hidden">
       <div class="bg-gray-800 rounded-lg p-6">
-        <div id="editor-placeholder" class="text-center py-12 text-gray-500">
-          请先从任务列表选择一个任务进行编辑
+        <div id="storybible-placeholder" class="text-center py-12 text-gray-500">
+          请先上传并解析小说
         </div>
-        <div id="editor-content" class="hidden">
-          <div class="flex justify-between items-center mb-4">
-            <h2 id="editor-title" class="text-xl font-semibold"></h2>
+        <div id="storybible-content" class="hidden">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold">故事圣经</h2>
             <div class="flex gap-2">
-              <button onclick="parseNovel()" id="btn-parse" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
+              <button onclick="parseNovel()" id="btn-parse-sb" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
                 📖 解析小说
               </button>
-              <button onclick="generateScript()" id="btn-script" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded opacity-50 cursor-not-allowed" disabled>
-                🎬 生成剧本
+            </div>
+          </div>
+
+          <!-- 基本信息 -->
+          <div class="mb-6 p-4 bg-gray-700 rounded">
+            <h3 class="font-medium mb-2">基本信息</h3>
+            <div class="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span class="text-gray-400">主题：</span>
+                <span id="sb-theme">-</span>
+              </div>
+              <div>
+                <span class="text-gray-400">预估集数：</span>
+                <span id="sb-episodes">-</span>
+              </div>
+              <div>
+                <span class="text-gray-400">氛围：</span>
+                <span id="sb-tone">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 角色列表 -->
+          <div class="mb-6">
+            <h3 class="font-medium mb-3">角色 (<span id="sb-char-count">0</span>)</h3>
+            <div id="sb-characters" class="grid grid-cols-2 gap-3"></div>
+          </div>
+
+          <!-- 事件列表 -->
+          <div class="mb-6">
+            <h3 class="font-medium mb-3">事件 (<span id="sb-event-count">0</span>)</h3>
+            <div id="sb-events" class="space-y-2 max-h-96 overflow-y-auto"></div>
+          </div>
+
+          <!-- 原型分布 -->
+          <div class="p-4 bg-gray-700 rounded">
+            <h3 class="font-medium mb-2">原型分布</h3>
+            <div id="sb-archetypes" class="flex gap-2 flex-wrap"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Architecture Tab -->
+    <div id="panel-architecture" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div id="arch-placeholder" class="text-center py-12 text-gray-500">
+          请先生成故事圣经
+        </div>
+        <div id="arch-content" class="hidden">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold">分集架构</h2>
+            <div class="flex gap-2">
+              <button onclick="generateArchitecture()" id="btn-arch" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">
+                🏗️ 生成架构
               </button>
-              <button onclick="generateStoryboard()" id="btn-storyboard" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded opacity-50 cursor-not-allowed" disabled>
-                🎥 生成分镜
+            </div>
+          </div>
+
+          <!-- 概览 -->
+          <div class="mb-6 p-4 bg-gray-700 rounded">
+            <div class="grid grid-cols-4 gap-4 text-center">
+              <div>
+                <div class="text-2xl font-bold text-blue-400" id="arch-total">-</div>
+                <div class="text-sm text-gray-400">总集数</div>
+              </div>
+              <div>
+                <div class="text-2xl font-bold text-green-400" id="arch-events">-</div>
+                <div class="text-sm text-gray-400">事件数</div>
+              </div>
+              <div>
+                <div class="text-2xl font-bold text-purple-400" id="arch-beats">-</div>
+                <div class="text-sm text-gray-400">爽点数</div>
+              </div>
+              <div>
+                <div class="text-2xl font-bold text-yellow-400" id="arch-formula">-</div>
+                <div class="text-sm text-gray-400">计算公式</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 分集列表 -->
+          <div id="arch-episodes" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Script Tab -->
+    <div id="panel-script" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div id="script-placeholder" class="text-center py-12 text-gray-500">
+          请先生成分集架构
+        </div>
+        <div id="script-content" class="hidden">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold">剧本</h2>
+            <div class="flex gap-2">
+              <button onclick="generateScript()" id="btn-script" class="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded">
+                🎬 生成剧本
               </button>
               <button onclick="exportJob('json')" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded">
                 📥 导出
               </button>
             </div>
           </div>
-          
-          <div id="job-status" class="mb-4 p-3 bg-gray-700 rounded text-sm"></div>
-          
-          <!-- Episodes -->
-          <div id="episodes-container" class="space-y-4"></div>
+
+          <div id="script-episodes" class="space-y-4"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Storyboard Tab -->
+    <div id="panel-storyboard" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div id="storyboard-placeholder" class="text-center py-12 text-gray-500">
+          请先生成剧本
+        </div>
+        <div id="storyboard-content" class="hidden">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold">分镜</h2>
+            <div class="flex gap-2">
+              <select id="style-preset" class="bg-gray-700 rounded px-3 py-2 text-sm">
+                <option value="neutral_cinematic">Neutral Cinematic</option>
+                <option value="hitchcock">Hitchcock</option>
+                <option value="tarkovsky">Tarkovsky</option>
+                <option value="wong_kar_wai">Wong Kar-wai</option>
+                <option value="kubrick">Kubrick</option>
+                <option value="kurosawa">Kurosawa</option>
+              </select>
+              <button onclick="generateStoryboard()" id="btn-storyboard" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded">
+                🎥 生成分镜
+              </button>
+            </div>
+          </div>
+
+          <div id="storyboard-episodes" class="space-y-6"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Assets Tab -->
+    <div id="panel-assets" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div id="assets-placeholder" class="text-center py-12 text-gray-500">
+          请先生成故事圣经
+        </div>
+        <div id="assets-content" class="hidden">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold">资产</h2>
+            <div class="flex gap-2">
+              <button onclick="generateAssets()" id="btn-assets" class="bg-pink-600 hover:bg-pink-700 px-4 py-2 rounded">
+                🎨 生成资产
+              </button>
+            </div>
+          </div>
+
+          <!-- 资产分类 -->
+          <div class="grid grid-cols-3 gap-6">
+            <!-- 角色资产 -->
+            <div class="bg-gray-700 rounded-lg p-4">
+              <h3 class="font-medium mb-3">👤 角色资产</h3>
+              <div id="assets-characters" class="space-y-2"></div>
+            </div>
+
+            <!-- 场景资产 -->
+            <div class="bg-gray-700 rounded-lg p-4">
+              <h3 class="font-medium mb-3">🏞️ 场景资产</h3>
+              <div id="assets-scenes" class="space-y-2"></div>
+            </div>
+
+            <!-- 道具资产 -->
+            <div class="bg-gray-700 rounded-lg p-4">
+              <h3 class="font-medium mb-3">📦 道具资产</h3>
+              <div id="assets-props" class="space-y-2"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div id="status-bar" class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 p-3 hidden">
+      <div class="max-w-7xl mx-auto flex justify-between items-center">
+        <div id="status-message" class="text-sm"></div>
+        <button onclick="hideStatus()" class="text-gray-400 hover:text-white">✕</button>
       </div>
     </div>
   </div>
@@ -130,14 +315,55 @@
     const API_BASE = window.location.origin;
     let currentJob = null;
 
+    // 状态映射
+    const STATUS_MAP = {
+      'uploaded': '已上传',
+      'parsing': '解析中...',
+      'parsed': '已解析',
+      'architecting': '架构设计中...',
+      'architected': '架构完成',
+      'generating_script': '剧本生成中...',
+      'script_ready': '剧本就绪',
+      'generating_storyboard': '分镜生成中...',
+      'storyboard_ready': '分镜就绪',
+      'generating_assets': '资产生成中...',
+      'assets_ready': '资产就绪'
+    };
+
+    // 原型颜色
+    const ARCHETYPE_COLORS = {
+      'underdog': 'bg-blue-600',
+      'hidden_identity': 'bg-purple-600',
+      'gray': 'bg-gray-500',
+      'oppressor': 'bg-red-600',
+      'wildcard': 'bg-yellow-600',
+      'ally': 'bg-green-600'
+    };
+
+    // 爽点颜色
+    const BEAT_COLORS = {
+      'slap': 'bg-red-500',
+      'upgrade': 'bg-green-500',
+      'revenge': 'bg-orange-500',
+      'identity': 'bg-purple-500',
+      'info': 'bg-blue-500',
+      'comeback': 'bg-yellow-500',
+      'emotion': 'bg-pink-500'
+    };
+
     // Tab switching
     function showTab(tabName) {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('bg-gray-700'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.getElementById(`panel-${tabName}`).classList.remove('hidden');
-      document.getElementById(`tab-${tabName}`).classList.add('bg-gray-700');
-      
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+
       if (tabName === 'jobs') loadJobs();
+      if (tabName === 'storybible') updateStoryBibleTab();
+      if (tabName === 'architecture') updateArchitectureTab();
+      if (tabName === 'script') updateScriptTab();
+      if (tabName === 'storyboard') updateStoryboardTab();
+      if (tabName === 'assets') updateAssetsTab();
     }
 
     // File handling
@@ -146,7 +372,7 @@
       if (file) {
         document.getElementById('file-name').textContent = file.name;
         document.getElementById('file-name').classList.remove('hidden');
-        
+
         const reader = new FileReader();
         reader.onload = (e) => {
           document.getElementById('novel-content').value = e.target.result;
@@ -182,15 +408,17 @@
     // Upload form
     document.getElementById('upload-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      
+
       const title = document.getElementById('novel-title').value;
       const style = document.getElementById('novel-style').value;
       const content = document.getElementById('novel-content').value;
-      
+
       if (!content.trim()) {
         alert('请上传文件或粘贴小说内容');
         return;
       }
+
+      showStatus('上传中...');
 
       try {
         const response = await fetch(`${API_BASE}/api/novel/upload`, {
@@ -198,18 +426,18 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, style, content })
         });
-        
+
         const data = await response.json();
         if (data.jobId) {
-          alert(`上传成功！字数：${data.wordCount}`);
           currentJob = { id: data.jobId, title: data.title };
-          showTab('editor');
+          hideStatus();
+          showTab('storybible');
           loadJob(data.jobId);
         } else {
-          alert('上传失败：' + (data.error || '未知错误'));
+          showStatus('上传失败：' + (data.error || '未知错误'), true);
         }
       } catch (err) {
-        alert('请求失败：' + err.message);
+        showStatus('请求失败：' + err.message, true);
       }
     });
 
@@ -217,24 +445,24 @@
     async function loadJobs() {
       const listEl = document.getElementById('jobs-list');
       listEl.innerHTML = '<p class="text-gray-500 text-center py-8">加载中...</p>';
-      
+
       try {
         const response = await fetch(`${API_BASE}/api/jobs`);
         const data = await response.json();
-        
+
         if (data.jobs.length === 0) {
           listEl.innerHTML = '<p class="text-gray-500 text-center py-8">暂无任务</p>';
           return;
         }
-        
+
         listEl.innerHTML = data.jobs.map(job => `
           <div class="bg-gray-700 rounded-lg p-4 flex justify-between items-center">
             <div>
               <h3 class="font-medium">${job.title}</h3>
-              <p class="text-sm text-gray-400">${job.status} · ${new Date(job.createdAt).toLocaleString()}</p>
+              <p class="text-sm text-gray-400">${STATUS_MAP[job.status] || job.status} · ${new Date(job.createdAt).toLocaleString()}</p>
             </div>
             <div class="flex gap-2">
-              <button onclick="loadJob('${job.id}')" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">
+              <button onclick="loadAndEdit('${job.id}')" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">
                 编辑
               </button>
               <button onclick="deleteJob('${job.id}')" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm">
@@ -248,29 +476,27 @@
       }
     }
 
+    // Load and edit job
+    async function loadAndEdit(jobId) {
+      await loadJob(jobId);
+      showTab('storybible');
+    }
+
     // Load single job
     async function loadJob(jobId) {
       try {
         const response = await fetch(`${API_BASE}/api/jobs/${jobId}`);
         currentJob = await response.json();
-        
-        document.getElementById('editor-placeholder').classList.add('hidden');
-        document.getElementById('editor-content').classList.remove('hidden');
-        document.getElementById('editor-title').textContent = currentJob.title;
-        
-        updateJobStatus();
-        renderEpisodes();
-        
-        showTab('editor');
+        updateAllTabs();
       } catch (err) {
-        alert('加载失败：' + err.message);
+        console.error('Load job error:', err);
       }
     }
 
     // Delete job
     async function deleteJob(jobId) {
       if (!confirm('确定删除此任务？')) return;
-      
+
       try {
         await fetch(`${API_BASE}/api/jobs/${jobId}`, { method: 'DELETE' });
         loadJobs();
@@ -279,184 +505,417 @@
       }
     }
 
-    // Update status display
-    function updateJobStatus() {
-      if (!currentJob) return;
-      
-      const statusMap = {
-        'uploaded': '已上传，等待解析',
-        'parsing': '正在解析小说...',
-        'parsed': '小说已解析',
-        'generating_script': '正在生成剧本...',
-        'script_ready': '剧本已生成',
-        'generating_storyboard': '正在生成分镜...',
-        'storyboard_ready': '分镜已生成'
-      };
-      
-      const statusEl = document.getElementById('job-status');
-      statusEl.innerHTML = `
-        <span class="font-medium">状态：</span>${statusMap[currentJob.status] || currentJob.status}
-        ${currentJob.novel ? `· 字数：${currentJob.novel.wordCount}` : ''}
-        ${currentJob.storyBible?.estimatedEpisodes ? `· 预估集数：${currentJob.storyBible.estimatedEpisodes}` : ''}
-      `;
-      
-      // 更新按钮状态
-      const btnParse = document.getElementById('btn-parse');
-      const btnScript = document.getElementById('btn-script');
-      const btnStoryboard = document.getElementById('btn-storyboard');
-      
-      if (currentJob.status === 'uploaded') {
-        btnParse.disabled = false;
-        btnParse.classList.remove('opacity-50', 'cursor-not-allowed');
-        btnScript.disabled = true;
-        btnScript.classList.add('opacity-50', 'cursor-not-allowed');
-        btnStoryboard.disabled = true;
-        btnStoryboard.classList.add('opacity-50', 'cursor-not-allowed');
-      } else if (currentJob.status === 'parsed' || currentJob.status === 'script_ready') {
-        btnParse.disabled = true;
-        btnParse.classList.add('opacity-50', 'cursor-not-allowed');
-        btnScript.disabled = false;
-        btnScript.classList.remove('opacity-50', 'cursor-not-allowed');
-        btnStoryboard.disabled = false;
-        btnStoryboard.classList.remove('opacity-50', 'cursor-not-allowed');
-      } else {
-        // 正在处理中
-        btnParse.disabled = true;
-        btnParse.classList.add('opacity-50', 'cursor-not-allowed');
-        btnScript.disabled = true;
-        btnScript.classList.add('opacity-50', 'cursor-not-allowed');
-        btnStoryboard.disabled = true;
-        btnStoryboard.classList.add('opacity-50', 'cursor-not-allowed');
-      }
-    }
-
     // Parse novel
     async function parseNovel() {
-      if (!currentJob) {
-        alert('请先上传小说');
-        return;
-      }
-      
-      const btn = document.getElementById('btn-parse');
+      if (!currentJob) return;
+
+      const btn = document.getElementById('btn-parse-sb');
       btn.textContent = '📖 解析中...';
       btn.disabled = true;
-      
+
+      showStatus('正在解析小说，这可能需要一些时间...');
+
       try {
         const response = await fetch(`${API_BASE}/api/novel/parse/${currentJob.id}`, {
           method: 'POST'
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
-          alert('小说解析成功！预估 ' + (data.estimatedEpisodes || 7) + ' 集');
-          await loadJob(currentJob.id);
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateStoryBibleTab();
+          showStatus('解析完成！');
         } else {
-          alert('解析失败：' + (data.error || '未知错误'));
-          btn.textContent = '📖 解析小说';
-          btn.disabled = false;
+          showStatus('解析失败：' + (data.error || '未知错误'), true);
         }
       } catch (err) {
-        alert('解析失败：' + err.message);
-        btn.textContent = '📖 解析小说';
-        btn.disabled = false;
+        showStatus('解析失败：' + err.message, true);
       }
+
+      btn.textContent = '📖 解析小说';
+      btn.disabled = false;
     }
 
-    // Render episodes
-    function renderEpisodes() {
-      const container = document.getElementById('episodes-container');
-      
-      if (!currentJob?.script?.episodes?.length) {
-        container.innerHTML = '<p class="text-gray-500 text-center py-8">暂无剧本内容，点击"生成剧本"开始</p>';
-        return;
+    // Generate architecture
+    async function generateArchitecture() {
+      if (!currentJob || !currentJob.storyBible) return;
+
+      const btn = document.getElementById('btn-arch');
+      btn.textContent = '🏗️ 生成中...';
+      btn.disabled = true;
+
+      showStatus('正在生成分集架构...');
+
+      try {
+        const response = await fetch(`${API_BASE}/api/architecture/generate/${currentJob.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateArchitectureTab();
+          showStatus('架构生成完成！');
+        } else {
+          showStatus('生成失败：' + (data.error || '未知错误'), true);
+        }
+      } catch (err) {
+        showStatus('生成失败：' + err.message, true);
       }
-      
-      container.innerHTML = currentJob.script.episodes.map(ep => `
-        <div class="bg-gray-700 rounded-lg p-4">
-          <h3 class="font-medium mb-2">第 ${ep.number} 集</h3>
-          <textarea class="w-full bg-gray-800 rounded p-3 h-40" data-episode="${ep.number}">${ep.content || ''}</textarea>
-        </div>
-      `).join('');
+
+      btn.textContent = '🏗️ 生成架构';
+      btn.disabled = false;
     }
 
     // Generate script
     async function generateScript() {
-      if (!currentJob) {
-        alert('请先上传并解析小说');
-        return;
-      }
-      
-      const episodes = prompt('生成几集剧本？', currentJob.storyBible?.estimatedEpisodes || 7);
-      if (!episodes) return;
-      
+      if (!currentJob || !currentJob.architecture) return;
+
       const btn = document.getElementById('btn-script');
       btn.textContent = '🎬 生成中...';
       btn.disabled = true;
-      
+
+      showStatus('正在生成剧本...');
+
       try {
         const response = await fetch(`${API_BASE}/api/script/generate/${currentJob.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ episodes: parseInt(episodes) })
+          body: JSON.stringify({})
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
-          alert('剧本生成成功！');
-          await loadJob(currentJob.id);
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateScriptTab();
+          showStatus('剧本生成完成！');
         } else {
-          alert('生成失败：' + (data.error || '未知错误'));
-          btn.textContent = '🎬 生成剧本';
-          btn.disabled = false;
+          showStatus('生成失败：' + (data.error || '未知错误'), true);
         }
       } catch (err) {
-        alert('请求失败：' + err.message);
-        btn.textContent = '🎬 生成剧本';
-        btn.disabled = false;
+        showStatus('生成失败：' + err.message, true);
       }
+
+      btn.textContent = '🎬 生成剧本';
+      btn.disabled = false;
     }
 
     // Generate storyboard
     async function generateStoryboard() {
-      if (!currentJob) {
-        alert('请先上传并解析小说');
-        return;
-      }
-      
+      if (!currentJob || !currentJob.script) return;
+
       const btn = document.getElementById('btn-storyboard');
       btn.textContent = '🎥 生成中...';
       btn.disabled = true;
-      
+
+      const stylePreset = document.getElementById('style-preset').value;
+      showStatus('正在生成分镜...');
+
       try {
         const response = await fetch(`${API_BASE}/api/storyboard/generate/${currentJob.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'A' })
+          body: JSON.stringify({ mode: 'A', stylePreset })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
-          alert('分镜生成成功！');
-          await loadJob(currentJob.id);
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateStoryboardTab();
+          showStatus('分镜生成完成！');
         } else {
-          alert('生成失败：' + (data.error || '未知错误'));
-          btn.textContent = '🎥 生成分镜';
-          btn.disabled = false;
+          showStatus('生成失败：' + (data.error || '未知错误'), true);
         }
       } catch (err) {
-        alert('请求失败：' + err.message);
-        btn.textContent = '🎥 生成分镜';
-        btn.disabled = false;
+        showStatus('生成失败：' + err.message, true);
       }
+
+      btn.textContent = '🎥 生成分镜';
+      btn.disabled = false;
+    }
+
+    // Generate assets
+    async function generateAssets() {
+      if (!currentJob || !currentJob.storyBible) return;
+
+      const btn = document.getElementById('btn-assets');
+      btn.textContent = '🎨 生成中...';
+      btn.disabled = true;
+
+      showStatus('正在生成资产...');
+
+      try {
+        const response = await fetch(`${API_BASE}/api/asset/generate/${currentJob.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateAssetsTab();
+          showStatus('资产生成完成！');
+        } else {
+          showStatus('生成失败：' + (data.error || '未知错误'), true);
+        }
+      } catch (err) {
+        showStatus('生成失败：' + err.message, true);
+      }
+
+      btn.textContent = '🎨 生成资产';
+      btn.disabled = false;
+    }
+
+    // Update all tabs
+    function updateAllTabs() {
+      updateStoryBibleTab();
+      updateArchitectureTab();
+      updateScriptTab();
+      updateStoryboardTab();
+      updateAssetsTab();
+    }
+
+    // Update Story Bible Tab
+    function updateStoryBibleTab() {
+      const placeholder = document.getElementById('storybible-placeholder');
+      const content = document.getElementById('storybible-content');
+
+      if (!currentJob) {
+        placeholder.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+      }
+
+      placeholder.classList.add('hidden');
+      content.classList.remove('hidden');
+
+      const sb = currentJob.storyBible;
+      if (!sb) return;
+
+      // 基本信息
+      document.getElementById('sb-theme').textContent = sb.mainTheme || '-';
+      document.getElementById('sb-episodes').textContent = sb.estimatedEpisodes || '-';
+      document.getElementById('sb-tone').textContent = (sb.toneKeywords || []).join(', ') || '-';
+
+      // 角色
+      const charCount = (sb.characters || []).length;
+      document.getElementById('sb-char-count').textContent = charCount;
+
+      document.getElementById('sb-characters').innerHTML = (sb.characters || []).map(c => `
+        <div class="bg-gray-700 rounded p-3">
+          <div class="flex justify-between items-start mb-2">
+            <span class="font-medium">${c.name}</span>
+            <span class="text-xs px-2 py-1 rounded ${ARCHETYPE_COLORS[c.archetype] || 'bg-gray-600'}">${c._archetypeName || c.archetype || c.role}</span>
+          </div>
+          <p class="text-sm text-gray-400">${(c.traits || []).slice(0, 3).join(' · ')}</p>
+          ${c.desires ? `<p class="text-xs text-gray-500 mt-1">欲望: ${c.desires}</p>` : ''}
+        </div>
+      `).join('');
+
+      // 事件
+      const eventCount = (sb.events || []).length;
+      document.getElementById('sb-event-count').textContent = eventCount;
+
+      document.getElementById('sb-events').innerHTML = (sb.events || []).slice(0, 20).map(e => `
+        <div class="bg-gray-700 rounded p-2 flex items-center gap-2">
+          <span class="text-xs font-mono text-gray-500">${e.id}</span>
+          <span class="flex-1 text-sm">${e.summary || e.description || ''}</span>
+          <span class="text-xs px-2 py-0.5 rounded ${e.type === 'load_bearing' ? 'bg-red-600' : e.type === 'reinforcing' ? 'bg-blue-600' : 'bg-gray-600'}">${e.type}</span>
+          ${(e.beatPotential || []).map(b => `<span class="beat-badge ${BEAT_COLORS[b] || 'bg-gray-500'}">${b}</span>`).join('')}
+        </div>
+      `).join('');
+
+      // 原型分布
+      const archetypeCounts = {};
+      (sb.characters || []).forEach(c => {
+        const a = c.archetype || 'unknown';
+        archetypeCounts[a] = (archetypeCounts[a] || 0) + 1;
+      });
+
+      document.getElementById('sb-archetypes').innerHTML = Object.entries(archetypeCounts).map(([a, count]) => `
+        <span class="px-3 py-1 rounded ${ARCHETYPE_COLORS[a] || 'bg-gray-600'}">${a}: ${count}</span>
+      `).join('');
+    }
+
+    // Update Architecture Tab
+    function updateArchitectureTab() {
+      const placeholder = document.getElementById('arch-placeholder');
+      const content = document.getElementById('arch-content');
+
+      if (!currentJob || !currentJob.storyBible) {
+        placeholder.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+      }
+
+      placeholder.classList.add('hidden');
+      content.classList.remove('hidden');
+
+      const arch = currentJob.architecture;
+      if (!arch) return;
+
+      // 概览
+      document.getElementById('arch-total').textContent = arch.totalEpisodes || '-';
+      document.getElementById('arch-events').textContent = (currentJob.storyBible.events || []).length;
+      document.getElementById('arch-beats').textContent = Object.values(arch.beatDistribution || {}).reduce((a, b) => a + b, 0);
+      document.getElementById('arch-formula').textContent = arch.formula ? arch.formula.split('=')[1]?.trim() || arch.formula : '-';
+
+      // 分集列表
+      document.getElementById('arch-episodes').innerHTML = (arch.episodes || []).map(ep => `
+        <div class="bg-gray-700 rounded-lg p-4">
+          <div class="flex justify-between items-center mb-3">
+            <h4 class="font-medium">第 ${ep.number} 集: ${ep.title || '未命名'}</h4>
+            <span class="text-sm text-gray-400">${ep.emotionalArc || ''}</span>
+          </div>
+          <p class="text-sm text-gray-300 mb-3">${ep.logline || '无卖点'}</p>
+          <div class="flex gap-2 flex-wrap">
+            ${Object.entries(ep.beatMap || {}).filter(([_, v]) => v && v.type).map(([pos, v]) => `
+              <span class="text-xs px-2 py-1 rounded ${BEAT_COLORS[v.type] || 'bg-gray-500'}">${pos}: ${v.type}</span>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Update Script Tab
+    function updateScriptTab() {
+      const placeholder = document.getElementById('script-placeholder');
+      const content = document.getElementById('script-content');
+
+      if (!currentJob || !currentJob.architecture) {
+        placeholder.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+      }
+
+      placeholder.classList.add('hidden');
+      content.classList.remove('hidden');
+
+      const script = currentJob.script;
+      if (!script || !script.episodes?.length) {
+        document.getElementById('script-episodes').innerHTML = '<p class="text-gray-500 text-center py-8">点击"生成剧本"开始</p>';
+        return;
+      }
+
+      document.getElementById('script-episodes').innerHTML = script.episodes.map(ep => `
+        <div class="bg-gray-700 rounded-lg p-4">
+          <div class="flex justify-between items-center mb-3">
+            <h4 class="font-medium">第 ${ep.number} 集</h4>
+            <span class="text-sm text-gray-400">${ep.metadata?.generatedAt ? new Date(ep.metadata.generatedAt).toLocaleString() : ''}</span>
+          </div>
+          <div class="prose prose-invert max-w-none">
+            <pre class="whitespace-pre-wrap text-sm bg-gray-800 p-3 rounded">${ep.content || '（空）'}</pre>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Update Storyboard Tab
+    function updateStoryboardTab() {
+      const placeholder = document.getElementById('storyboard-placeholder');
+      const content = document.getElementById('storyboard-content');
+
+      if (!currentJob || !currentJob.script) {
+        placeholder.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+      }
+
+      placeholder.classList.add('hidden');
+      content.classList.remove('hidden');
+
+      const storyboard = currentJob.storyboard;
+      if (!storyboard || !storyboard.episodes?.length) {
+        document.getElementById('storyboard-episodes').innerHTML = '<p class="text-gray-500 text-center py-8">点击"生成分镜"开始</p>';
+        return;
+      }
+
+      document.getElementById('storyboard-episodes').innerHTML = storyboard.episodes.map(ep => `
+        <div class="bg-gray-700 rounded-lg p-4">
+          <h4 class="font-medium mb-4">第 ${ep.episodeNumber} 集 - ${ep.clips?.length || 0} 个片段</h4>
+          <div class="grid grid-cols-2 gap-4">
+            ${(ep.clips || []).slice(0, 6).map(clip => `
+              <div class="clip-card bg-gray-800 rounded p-3">
+                <div class="flex justify-between items-center mb-2">
+                  <span class="text-sm font-medium">${clip.id}: ${clip.title}</span>
+                  <span class="text-xs text-gray-500">${clip.duration?.total || 0}s</span>
+                </div>
+                <p class="text-xs text-gray-400 mb-2">${clip.emotion || ''}</p>
+                <div class="prompt-box text-xs text-gray-300 bg-gray-900 p-2 rounded max-h-32 overflow-y-auto">${(clip.prompt?.combined || '').slice(0, 200)}...</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Update Assets Tab
+    function updateAssetsTab() {
+      const placeholder = document.getElementById('assets-placeholder');
+      const content = document.getElementById('assets-content');
+
+      if (!currentJob || !currentJob.storyBible) {
+        placeholder.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+      }
+
+      placeholder.classList.add('hidden');
+      content.classList.remove('hidden');
+
+      const assets = currentJob.assets;
+      if (!assets) {
+        document.getElementById('assets-characters').innerHTML = '<p class="text-gray-500 text-sm">点击"生成资产"</p>';
+        document.getElementById('assets-scenes').innerHTML = '<p class="text-gray-500 text-sm">点击"生成资产"</p>';
+        document.getElementById('assets-props').innerHTML = '<p class="text-gray-500 text-sm">点击"生成资产"</p>';
+        return;
+      }
+
+      // 角色资产
+      document.getElementById('assets-characters').innerHTML = (assets.characters || []).map(c => `
+        <div class="bg-gray-600 rounded p-2">
+          <div class="font-medium text-sm mb-1">${c.characterName}</div>
+          <div class="text-xs text-gray-400">点击查看提示词</div>
+        </div>
+      `).join('') || '<p class="text-gray-500 text-sm">暂无角色资产</p>';
+
+      // 场景资产
+      document.getElementById('assets-scenes').innerHTML = (assets.scenes || []).map(s => `
+        <div class="bg-gray-600 rounded p-2">
+          <div class="font-medium text-sm mb-1">${s.sceneName}</div>
+          <div class="text-xs text-gray-400">${s.mood || ''}</div>
+        </div>
+      `).join('') || '<p class="text-gray-500 text-sm">暂无场景资产</p>';
+
+      // 道具资产
+      document.getElementById('assets-props').innerHTML = '<p class="text-gray-500 text-sm">暂无道具资产</p>';
     }
 
     // Export
     function exportJob(format) {
       if (!currentJob) return;
       window.open(`${API_BASE}/api/export/${currentJob.id}/${format}`, '_blank');
+    }
+
+    // Status bar
+    function showStatus(message, isError = false) {
+      const statusBar = document.getElementById('status-bar');
+      const statusMessage = document.getElementById('status-message');
+      statusBar.classList.remove('hidden');
+      statusMessage.textContent = message;
+      statusMessage.className = isError ? 'text-red-400' : 'text-gray-300';
+    }
+
+    function hideStatus() {
+      document.getElementById('status-bar').classList.add('hidden');
     }
 
     // Initialize

@@ -3,10 +3,14 @@
  * 支持智谱 GLM API
  */
 
+// 加载环境变量
+import dotenv from 'dotenv';
+dotenv.config();
+
 // 使用 Node.js 内置 fetch（Node 18+）
 const fetch = globalThis.fetch;
 
-const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY || '7bb3307a265a4331b3e1e550d3312318.ur46BnAFpgdH7vPa';
+const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY;
 const ZHIPU_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 
 export class LLMService {
