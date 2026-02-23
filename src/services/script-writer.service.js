@@ -56,6 +56,12 @@ export class ScriptWriterService {
           { style, rhythmTemplate }
         );
 
+        // 验证内容是否有效（非空且长度足够）
+        if (!script || script.trim().length < 50) {
+          console.warn(`[ScriptWriter] 第 ${episode.number} 集内容无效或过短，使用 fallback`);
+          throw new Error('Script content is empty or too short');
+        }
+
         generatedEpisodes.push({
           number: episode.number,
           title: episode.title,
@@ -108,9 +114,13 @@ export class ScriptWriterService {
       rhythmTemplate
     });
 
+    console.log(`[ScriptWriter] 第 ${episodeNumber} 集 prompt 长度: ${prompt.length}`);
+
     const response = await llmService.chat([
       { role: 'user', content: prompt }
     ], { maxTokens: 4096 });
+
+    console.log(`[ScriptWriter] 第 ${episodeNumber} 集 response 长度: ${response?.length || 0}`);
 
     return response;
   }
@@ -263,10 +273,18 @@ export class ScriptWriterService {
   async generateEpisodeWithProgress(storyBible, architecture, episodeNumber, options = {}, onProgress = null) {
     if (onProgress) onProgress({ stage: 'start', episode: episodeNumber });
 
+    const episode = architecture.episodes.find(e => e.number === episodeNumber);
+
     try {
       if (onProgress) onProgress({ stage: 'generating', episode: episodeNumber });
 
       const content = await this.generateEpisodeScript(storyBible, architecture, episodeNumber, options);
+
+      // 验证内容是否有效
+      if (!content || content.trim().length < 50) {
+        console.warn(`[ScriptWriter] 第 ${episodeNumber} 集内容无效或过短，使用 fallback`);
+        throw new Error('Script content is empty or too short');
+      }
 
       if (onProgress) onProgress({ stage: 'parsing', episode: episodeNumber });
 
@@ -276,19 +294,25 @@ export class ScriptWriterService {
 
       return {
         number: episodeNumber,
+        title: episode?.title,
         content,
         parsed,
-        success: true
+        metadata: {
+          generatedAt: new Date().toISOString()
+        }
       };
     } catch (error) {
       if (onProgress) onProgress({ stage: 'error', episode: episodeNumber, error: error.message });
 
-      const episode = architecture.episodes.find(e => e.number === episodeNumber);
       return {
         number: episodeNumber,
+        title: episode?.title,
         content: this.generateFallbackScript(episode, storyBible),
-        success: false,
-        error: error.message
+        error: error.message,
+        metadata: {
+          fallback: true,
+          generatedAt: new Date().toISOString()
+        }
       };
     }
   }

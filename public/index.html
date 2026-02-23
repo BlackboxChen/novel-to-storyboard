@@ -806,16 +806,59 @@
       }
 
       document.getElementById('script-episodes').innerHTML = script.episodes.map(ep => `
-        <div class="bg-gray-700 rounded-lg p-4">
+        <div class="bg-gray-700 rounded-lg p-4" id="script-ep-${ep.number}">
           <div class="flex justify-between items-center mb-3">
-            <h4 class="font-medium">第 ${ep.number} 集</h4>
-            <span class="text-sm text-gray-400">${ep.metadata?.generatedAt ? new Date(ep.metadata.generatedAt).toLocaleString() : ''}</span>
+            <h4 class="font-medium">第 ${ep.number} 集${ep.title ? `: ${ep.title}` : ''}</h4>
+            <div class="flex items-center gap-2">
+              ${ep.metadata?.fallback ? '<span class="text-xs bg-yellow-600 px-2 py-1 rounded">降级版</span>' : ''}
+              ${ep.error ? '<span class="text-xs bg-red-600 px-2 py-1 rounded">错误</span>' : ''}
+              <button onclick="regenerateEpisode(${ep.number})" class="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded" id="btn-regen-${ep.number}">
+                🔄 重新生成
+              </button>
+              <span class="text-sm text-gray-400">${ep.metadata?.generatedAt ? new Date(ep.metadata.generatedAt).toLocaleString() : ''}</span>
+            </div>
           </div>
           <div class="prose prose-invert max-w-none">
-            <pre class="whitespace-pre-wrap text-sm bg-gray-800 p-3 rounded">${ep.content || '（空）'}</pre>
+            <pre class="whitespace-pre-wrap text-sm bg-gray-800 p-3 rounded">${ep.content || '（内容为空，请重新生成）'}</pre>
           </div>
+          ${ep.error ? `<p class="text-red-400 text-sm mt-2">错误: ${ep.error}</p>` : ''}
         </div>
       `).join('');
+    }
+
+    // Regenerate single episode script
+    async function regenerateEpisode(episodeNumber) {
+      if (!currentJob) return;
+
+      const btn = document.getElementById(`btn-regen-${episodeNumber}`);
+      btn.textContent = '⏳ 生成中...';
+      btn.disabled = true;
+
+      showStatus(`正在重新生成第 ${episodeNumber} 集剧本...`);
+
+      try {
+        const response = await fetch(`${API_BASE}/api/script/generate/${currentJob.id}/episode/${episodeNumber}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          // Reload job and update tab
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateScriptTab();
+          showStatus(`第 ${episodeNumber} 集剧本已重新生成！`);
+        } else {
+          showStatus('生成失败：' + (data.error || '未知错误'), true);
+        }
+      } catch (err) {
+        showStatus('生成失败：' + err.message, true);
+      }
+
+      btn.textContent = '🔄 重新生成';
+      btn.disabled = false;
     }
 
     // Update Storyboard Tab

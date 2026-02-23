@@ -24,18 +24,22 @@ export class LLMService {
    */
   async chat(messages, options = {}) {
     try {
+      const requestBody = {
+        model: options.model || 'glm-5',
+        max_tokens: options.maxTokens || 4096,
+        messages,
+        ...options
+      };
+
+      console.log(`[LLM] 发送请求, prompt长度: ${JSON.stringify(messages).length} 字符`);
+
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`
         },
-        body: JSON.stringify({
-          model: options.model || 'glm-5',
-          max_tokens: options.maxTokens || 4096,
-          messages,
-          ...options
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
@@ -44,7 +48,15 @@ export class LLMService {
       }
 
       const data = await response.json();
-      return data.choices[0].message.content;
+      const content = data.choices?.[0]?.message?.content;
+
+      console.log(`[LLM] 收到响应, 内容长度: ${content?.length || 0} 字符`);
+
+      if (!content || content.trim().length === 0) {
+        console.warn('[LLM] 响应内容为空，完整响应:', JSON.stringify(data).slice(0, 500));
+      }
+
+      return content || '';
     } catch (error) {
       console.error('LLM API call failed:', error);
       throw error;

@@ -23,107 +23,99 @@ export function generateScriptPrompt(storyBible, architecture, episodeNumber, op
 
   const rhythm = RHYTHM_TEMPLATES[rhythmTemplate.toUpperCase()] || RHYTHM_TEMPLATES.STANDARD_90;
 
-  const styleGuide = style === 'narrated'
-    ? getNarratedStyleGuide()
-    : getStoryboardStyleGuide();
+  // 获取本集相关角色（简化）
+  const episodeChars = (episode.keyCharacters || storyBible.characters.slice(0, 3).map(c => c.id))
+    .map(charId => storyBible.characters.find(c => c.id === charId))
+    .filter(Boolean)
+    .slice(0, 3)
+    .map(c => `${c.name}(${c.role})`)
+    .join(', ');
 
+  // 获取本集事件（简化）
+  const episodeEvents = episode.assignedEvents
+    .map(eventId => {
+      const event = storyBible.events.find(e => e.id === eventId);
+      return event ? `${event.id}: ${event.summary}` : null;
+    })
+    .filter(Boolean)
+    .slice(0, 5)
+    .join('\n');
+
+  // 获取爽点信息（简化）
   const beatTypeInfo = episode.beatMap
     ? Object.entries(episode.beatMap)
         .filter(([_, v]) => v && v.type)
-        .map(([pos, v]) => {
-          const config = Object.values(BEAT_TYPES).find(b => b.id === v.type);
-          return `${pos}: ${config?.name || v.type}`;
-        })
+        .slice(0, 3)
+        .map(([pos, v]) => `${pos}: ${v.type}`)
         .join(', ')
     : '未指定';
 
-  return `你是一个专业漫剧编剧。请根据以下信息，生成第 ${episodeNumber} 集的完整剧本。
+  // 简化版 prompt
+  return `你是漫剧编剧。为《${storyBible.title || '未命名'}》生成第${episodeNumber}集剧本。
 
-## 基本信息
-- 集号：第 ${episodeNumber} 集 / 共 ${architecture.totalEpisodes} 集
-- 集标题：${episode.title || '待定'}
-- 一句话卖点：${episode.logline || '待定'}
-- 时长：${rhythm.duration} 秒
-- 风格：${style === 'narrated' ? '解说漫' : '分格漫剧'}
+## 本集信息
+- 标题：${episode.title || '待定'}
+- 卖点：${episode.logline || '待定'}
+- 时长：${rhythm.duration}秒
+- 风格：${style === 'narrated' ? '解说漫(旁白为主)' : '分格漫剧'}
 
-## 本集事件
-${episode.assignedEvents.map(eventId => {
-  const event = storyBible.events.find(e => e.id === eventId);
-  return event ? `- ${event.id}: ${event.summary}` : null;
-}).filter(Boolean).join('\n')}
+## 角色
+${episodeChars}
 
-## 本集出场角色
-${(episode.keyCharacters || storyBible.characters.slice(0, 3).map(c => c.id)).map(charId => {
-  const char = storyBible.characters.find(c => c.id === charId);
-  return char ? `- ${char.name}(${char.archetype || char.role}): ${char.traits?.slice(0, 2).join(', ')}` : null;
-}).filter(Boolean).join('\n')}
+## 事件
+${episodeEvents || '无特定事件'}
 
-## 爽点规划
+## 爽点
 ${beatTypeInfo}
 
-## 角色详细信息
-\`\`\`json
-${JSON.stringify(storyBible.characters.filter(c =>
-  episode.keyCharacters?.includes(c.id) || c.role === 'protagonist'
-), null, 2)}
-\`\`\`
-
-## 事件详细信息
-\`\`\`json
-${JSON.stringify(storyBible.events.filter(e =>
-  episode.assignedEvents.includes(e.id)
-), null, 2)}
-\`\`\`
-
-${styleGuide}
-
-## 节奏结构（${rhythm.name}）
-${rhythm.segments.map(s => `- ${s.name}(${s.timing[0]}-${s.timing[1]}s): ${s.description}`).join('\n')}
-
 ## 输出格式
-使用 Markdown 格式输出完整剧本：
+直接输出剧本Markdown，格式如下：
 
 ### 第${episodeNumber}集：${episode.title || '标题'}
 
 **卖点**：一句话卖点
-**主爽点**：类型与描述
 
 ---
 
 #### 【开场钩子】0-5s
-**时间码**：0.0-5.0s
+🎙️ 旁白：
+> [说书体开场，3秒抓住观众]
 
-🎙️ **旁白**：
-> [说书体旁白，硬钩子，3秒内抓住观众]
-
-🖼️ **画面**：
+🖼️ 画面：
 - [画面描述]
-
-⚡ **爽点**：[类型] - [描述]
 
 ---
 
 #### 【背景铺垫】5-20s
-...
+🎙️ 旁白：
+> [背景介绍]
 
-#### 【冲突展开】20-40s
-...
-
-#### 【升级转折】40-60s
-...
-
-#### 【高潮回报】60-80s
-...
-
-#### 【悬置钩子】80-90s
-...
+🖼️ 画面：
+- [画面描述]
 
 ---
 
-**本集总结**：
-- 情绪弧线：[描述]
-- 关键台词：[金句]
-- 下集预告：[悬念]`;
+#### 【冲突展开】20-40s
+[继续...]
+
+---
+
+#### 【升级转折】40-60s
+[继续...]
+
+---
+
+#### 【高潮回报】60-80s
+[高潮爽点]
+
+---
+
+#### 【悬置钩子】80-90s
+[结尾悬念]
+
+---
+
+**下集预告**：[悬念内容]`;
 }
 
 /**
