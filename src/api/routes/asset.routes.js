@@ -223,4 +223,100 @@ router.get('/:jobId/character/:characterId', async (req, res) => {
   }
 });
 
+/**
+ * 生成角色四视图
+ * POST /api/asset/turnaround/:jobId
+ */
+router.post('/turnaround/:jobId', async (req, res) => {
+  try {
+    const job = await req.app.locals.loadJob(req.params.jobId);
+    if (!job || !job.storyBible) {
+      return res.status(404).json({ error: '任务或故事圣经不存在' });
+    }
+
+    const { characterId, stylePreset } = req.body;
+
+    if (!characterId) {
+      return res.status(400).json({ error: '请指定角色ID' });
+    }
+
+    const character = job.storyBible.characters.find(c => c.id === characterId);
+    if (!character) {
+      return res.status(404).json({ error: '角色不存在' });
+    }
+
+    const turnaround = assetService.generateCharacterTurnaround(character, stylePreset || 'neutral_cinematic');
+
+    res.json(turnaround);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 生成角色表情参考图
+ * POST /api/asset/expressions/:jobId
+ */
+router.post('/expressions/:jobId', async (req, res) => {
+  try {
+    const job = await req.app.locals.loadJob(req.params.jobId);
+    if (!job || !job.storyBible) {
+      return res.status(404).json({ error: '任务或故事圣经不存在' });
+    }
+
+    const { characterId, stylePreset, expressions } = req.body;
+
+    if (!characterId) {
+      return res.status(400).json({ error: '请指定角色ID' });
+    }
+
+    const character = job.storyBible.characters.find(c => c.id === characterId);
+    if (!character) {
+      return res.status(404).json({ error: '角色不存在' });
+    }
+
+    const expressionSheet = assetService.generateCharacterExpressions(
+      character,
+      stylePreset || 'neutral_cinematic',
+      expressions // 可选：自定义表情列表
+    );
+
+    res.json(expressionSheet);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 生成完整角色资产（基础+四视图+表情）
+ * POST /api/asset/character-full/:jobId
+ */
+router.post('/character-full/:jobId', async (req, res) => {
+  try {
+    const job = await req.app.locals.loadJob(req.params.jobId);
+    if (!job || !job.storyBible) {
+      return res.status(404).json({ error: '任务或故事圣经不存在' });
+    }
+
+    const { characterId, stylePreset } = req.body;
+
+    if (!characterId) {
+      return res.status(400).json({ error: '请指定角色ID' });
+    }
+
+    const character = job.storyBible.characters.find(c => c.id === characterId);
+    if (!character) {
+      return res.status(404).json({ error: '角色不存在' });
+    }
+
+    const fullAssets = await assetService.generateFullCharacterAssets(character, {
+      stylePreset: stylePreset || 'neutral_cinematic'
+    });
+
+    res.json(fullAssets);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

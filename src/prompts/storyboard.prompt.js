@@ -1,9 +1,19 @@
 /**
  * 分镜生成提示词模板
+ * 优化版：明确分离中英文提示词，添加关键帧参考
  */
 
 import { STYLE_PRESETS } from '../config/style-presets.js';
 import { IMPERFECTIONS, RANDOM_WORDS, FOREGROUND_ELEMENTS } from '../config/deai-elements.js';
+
+/**
+ * 时长选项配置
+ */
+const DURATION_OPTIONS = {
+  SHORT: 5,    // 激烈情绪
+  MEDIUM: 10,  // 中等情绪
+  LONG: 15     // 平缓情绪
+};
 
 /**
  * 生成分镜提示词
@@ -13,80 +23,75 @@ import { IMPERFECTIONS, RANDOM_WORDS, FOREGROUND_ELEMENTS } from '../config/deai
  * @returns {string}
  */
 export function generateStoryboardPrompt(scriptContent, episodeNumber, options = {}) {
-  const { mode = 'A', stylePreset = 'neutral_cinematic' } = options;
+  const { mode = 'A', stylePreset = 'neutral_cinematic', maxDuration = null } = options;
 
   const style = STYLE_PRESETS[stylePreset.toUpperCase()] || STYLE_PRESETS.NEUTRAL_CINEMATIC;
 
-  const modeGuide = mode === 'A'
-    ? getModeAGuide()
-    : getModeBGuide();
+  const styleInfo = `**预设**：${style.name}
+**特点**：${style.characteristics.join(', ')}
+**导演风格**：${style.director || '通用'}`;
 
-  const fiveDFramework = getFiveDFramework();
-  const deAIElements = getDeAIElementsGuide();
+  const durationGuide = maxDuration
+    ? `用户自定义最大时长: ${maxDuration}秒`
+    : `智能时长决策: 根据情绪选择 5s/10s/15s (激烈=5s, 中等=10s, 平缓=15s)`;
 
-  return `你是一个专业分镜师。请根据以下第${episodeNumber}集剧本内容，生成视频分镜提示词。
+  return `你是专业分镜师。为第${episodeNumber}集生成视频分镜。
 
 ## 剧本内容
 ${scriptContent}
 
-## 分镜模式
-${modeGuide}
-
 ## 视觉风格
-**预设**：${style.name}
-**特点**：${style.characteristics.join(', ')}
-**导演风格**：${style.director || '通用'}
+${styleInfo}
 
-## 风格提示词修饰语
-${style.promptModifiers.join(', ')}
+## 时长规则
+${durationGuide}
 
-## Negative Prompt 参考
-${style.negativePrompt.join(', ')}
+## 输出JSON格式（每个片段）
+{
+  "clips": [
+    {
+      "id": "V01",
+      "title": "片段标题",
+      "duration": { "start": 0, "end": 5, "total": 5 },
+      "intent": "意图说明",
+      "emotion": "情绪类型 · 强度(1-10)",
+      "transition": "← 入场 | → 出场",
+      "camera": "镜头与节奏（中文，含时间码和画面描述）",
+      "narration": "旁白内容（如有）",
+      "dialogue": "对白内容（如有，格式：角色名：台词）",
+      "bgm": "背景音乐建议",
+      "sfx": "音效提示",
+      "prompt": {
+        "d1_subject": "Subject description in ENGLISH only (character appearance, pose, action)",
+        "d2_environment": "Environment and lighting in ENGLISH only (scene, light source, atmosphere)",
+        "d3_material": "Material details in ENGLISH only (texture, fabric, skin details)",
+        "d4_camera": "Camera work in ENGLISH only (shot type, movement, lens)",
+        "d5_mood": "Mood and emotion in ENGLISH only (emotional tone, cinematic style)",
+        "imperfections": ["imperfection 1", "imperfection 2"],
+        "randomWords": ["random word 1", "random word 2"],
+        "foregroundLayer": "Foreground element description in ENGLISH",
+        "combined": "COMBINED ENGLISH PROMPT - Pure visual description, NO CHINESE",
+        "negative": "Negative prompt in English",
+        "chinese": "【中文提示词】5秒片段 | 画面：xxx | 镜头：xxx | 情绪：xxx | 旁白：xxx | 对白：xxx"
+      },
+      "keyframeRef": {
+        "composition": "Composition reference",
+        "colorPalette": "Color palette suggestion",
+        "moodBoard": "Mood reference"
+      }
+    }
+  ]
+}
 
-${fiveDFramework}
+## 关键要求
+1. **音频字段**: narration, dialogue, bgm, sfx 必须从剧本提取
+2. **英文提示词**: prompt.combined 必须是纯英文视觉描述，不能包含任何中文
+3. **中文提示词**: prompt.chinese 必须包含完整的中文描述，格式：
+   "【X秒片段】画面：xxx | 镜头：xxx | 情绪：xxx | 旁白：'xxx' | 对白：xxx"
+4. **5D框架**: d1-d5 必须都是纯英文描述
+5. **关键帧参考**: 为每个片段提供构图和色彩参考
 
-${deAIElements}
-
-## 输出格式
-为每个片段输出：
-
-### V{编号} | {描述标题} | {时长}
-
-**段落意图**：一句话说明叙事功能
-**情绪**：{类型} · {强度0-10}
-**转场**：← {入场方式} | → {出场方式}
-
-**镜头与节奏**：
-\`\`\`
-0.0-X.Xs: [景别+运动] 画面描述
-X.X-X.Xs: ...
-\`\`\`
-
-**5D框架提示词**：
-\`\`\`
-D1 主体: [角色/道具描述，包含外貌、服装、姿态]
-D2 环境光线: [场景、光源、光效、氛围光]
-D3 材质细节: [纹理、质感、表面细节]
-D4 拍摄风格: [景别、镜头运动、焦段、构图]
-D5 氛围情感: [情绪、风格、调性、导演感]
-\`\`\`
-
-**去AI味元素**：
-\`\`\`
-不完美: [皮肤/头发/服装不完美]
-随机词: [3-5个氛围/质感词]
-前景层: [遮挡元素]
-\`\`\`
-
-**完整提示词(英文)**：
-\`\`\`
-[组合5D框架 + 去AI味元素 + 风格修饰语的完整英文提示词]
-\`\`\`
-
-**Negative Prompt**：
-\`\`\`
-[包含AI痕迹、风格禁忌的完整Negative]
-\`\`\``;
+直接输出JSON，不要代码块。`;
 }
 
 /**

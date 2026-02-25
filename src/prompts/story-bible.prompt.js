@@ -23,29 +23,52 @@ export function generateStoryBiblePrompt(novelContent, title = '未命名', opti
     ? `\n\n**前文上下文**：\n${previousContext.slice(-300)}\n\n请保持一致性。`
     : '';
 
-  // 简化版 prompt - 减少输出复杂度
+  // 改进版 prompt - 强调事件顺序和依赖关系
   return `你是漫剧剧本分析师。分析《${title}》提取故事圣经。${chunkNote}${contextNote}
 
-输出纯JSON（无代码块），格式：
+## 输出格式（纯JSON，无代码块）
 {
   "title": "标题",
   "mainTheme": "主题",
-  "toneKeywords": ["氛围"],
+  "toneKeywords": ["氛围词"],
   "characters": [
-    {"id": "C01", "name": "名", "role": "protagonist/antagonist/ally", "archetype": "underdog/hidden_identity/gray/oppressor/wildcard/ally", "traits": ["特征"], "desires": "欲望", "fears": "恐惧"}
+    {"id": "C01", "name": "角色名", "role": "protagonist/antagonist/ally", "archetype": "原型", "traits": ["特征1", "特征2"], "desires": "核心欲望", "fears": "核心恐惧"}
   ],
   "events": [
-    {"id": "E01", "summary": "摘要", "type": "load_bearing/reinforcing/decorative", "dependsOn": [], "enables": [], "beatPotential": ["slap/upgrade/revenge/identity/info/comeback/emotion"]}
+    {"id": "E01", "summary": "事件摘要", "type": "事件类型", "dependsOn": ["E00"], "enables": ["E02"], "beatPotential": ["爽点类型"]}
   ],
-  "turningPoints": [{"position": "位置", "description": "描述"}],
-  "estimatedEpisodes": 5,
-  "mainTheme": "主题"
+  "turningPoints": [{"position": "位置描述", "description": "转折点说明"}],
+  "estimatedEpisodes": 5
 }
 
-原型说明：underdog逆袭型, hidden_identity隐身份型, gray灰度型, oppressor压迫者, wildcard搅局者, ally盟友
-爽点说明：slap打脸, upgrade升级, revenge复仇, identity身份, info信息, comeback反杀, emotion情感
+## 事件要求（重要！）
 
-小说：
+### 1. 按故事时间顺序排列
+事件必须按故事发生的先后顺序列出！
+- E01 应该是最早发生的事件
+- 最后的 E** 应该是结局
+
+### 2. 依赖关系说明
+- **dependsOn**: 此事件发生前必须已经发生的事件ID列表
+  - 例：E05"合租" dependsOn=["E04"]，因为必须先相识才能合租
+  - 开头事件 dependsOn=[]
+- **enables**: 此事件发生后才可能发生的事件ID列表
+  - 例：E04"相识" enables=["E05","E06"]
+  - 结局事件 enables=[]
+
+### 3. 事件类型
+- **load_bearing**: 承重事件，推动主线发展的关键节点
+- **reinforcing**: 强化事件，加深角色或主题
+- **decorative**: 装饰事件，丰富细节但非必要
+
+### 4. 爽点类型
+slap打脸, upgrade升级, revenge复仇, identity身份揭露, info信息揭露, comeback反杀, emotion情感
+
+### 5. 角色原型
+underdog逆袭型, hidden_identity隐身份型, gray灰度型, oppressor压迫者, wildcard搅局者, ally盟友
+
+---
+小说内容：
 ${novelContent.slice(0, 12000)}`;
 }
 

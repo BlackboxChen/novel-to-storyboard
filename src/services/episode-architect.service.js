@@ -199,32 +199,55 @@ export class EpisodeArchitectService {
   }
 
   /**
-   * 拓扑排序事件
+   * 拓扑排序事件（改进版，检测循环依赖）
    * @param {Array} events
    * @returns {Array}
    */
   topologicalSort(events) {
     const sorted = [];
     const visited = new Set();
+    const visiting = new Set(); // 用于检测循环
     const eventMap = new Map(events.map(e => [e.id, e]));
+    let hasCycle = false;
 
-    const visit = (event) => {
+    const visit = (event, path = []) => {
       if (visited.has(event.id)) return;
-      visited.add(event.id);
+      if (visiting.has(event.id)) {
+        // 检测到循环依赖
+        console.warn(`[EpisodeArchitect] 检测到循环依赖: ${[...path, event.id].join(' → ')}`);
+        hasCycle = true;
+        return;
+      }
+
+      visiting.add(event.id);
 
       // 先访问依赖
-      if (event.dependsOn) {
+      if (event.dependsOn && event.dependsOn.length > 0) {
         for (const depId of event.dependsOn) {
           const dep = eventMap.get(depId);
-          if (dep) visit(dep);
+          if (dep) visit(dep, [...path, event.id]);
         }
       }
 
+      visiting.delete(event.id);
+      visited.add(event.id);
       sorted.push(event);
     };
 
     for (const event of events) {
       visit(event);
+    }
+
+    // 如果检测到循环依赖，回退到原始顺序
+    if (hasCycle) {
+      console.warn('[EpisodeArchitect] 存在循环依赖，使用原始事件顺序');
+      return events;
+    }
+
+    // 检查是否有未访问的事件（引用了不存在的事件）
+    if (sorted.length !== events.length) {
+      console.warn(`[EpisodeArchitect] 排序结果不完整: ${sorted.length}/${events.length}，使用原始顺序`);
+      return events;
     }
 
     return sorted;

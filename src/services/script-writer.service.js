@@ -1,6 +1,6 @@
 /**
  * 剧本生成服务
- * 增强版剧本生成，支持爽点四步法、节奏模板、分批生成
+ * 结构化版本 - 输出包含clips数组的JSON格式
  */
 
 import { llmService } from './llm-service.js';
@@ -49,35 +49,41 @@ export class ScriptWriterService {
       console.log(`[ScriptWriter] 生成第 ${episode.number} 集...`);
 
       try {
-        const script = await this.generateEpisodeScript(
+        const scriptData = await this.generateEpisodeScript(
           storyBible,
           architecture,
           episode.number,
           { style, rhythmTemplate }
         );
 
-        // 验证内容是否有效（非空且长度足够）
-        if (!script || script.trim().length < 50) {
-          console.warn(`[ScriptWriter] 第 ${episode.number} 集内容无效或过短，使用 fallback`);
-          throw new Error('Script content is empty or too short');
+        // 验证内容是否有效
+        if (!scriptData || !scriptData.clips || scriptData.clips.length === 0) {
+          console.warn(`[ScriptWriter] 第 ${episode.number} 集内容无效，使用 fallback`);
+          throw new Error('Script content is empty or invalid');
         }
 
         generatedEpisodes.push({
           number: episode.number,
-          title: episode.title,
-          content: script,
+          title: scriptData.title || episode.title,
+          logline: scriptData.logline || episode.logline,
+          clips: scriptData.clips,  // 结构化数据
+          content: this.clipsToMarkdown(scriptData),  // Markdown版本（兼容）
+          summary: scriptData.summary || {},
           metadata: {
             style,
             rhythmTemplate,
+            totalDuration: scriptData.totalDuration,
             generatedAt: new Date().toISOString()
           }
         });
       } catch (error) {
         console.error(`[ScriptWriter] 第 ${episode.number} 集生成失败:`, error.message);
+        const fallbackData = this.generateFallbackScript(episode, storyBible);
         generatedEpisodes.push({
           number: episode.number,
           title: episode.title,
-          content: this.generateFallbackScript(episode, storyBible),
+          clips: fallbackData.clips,
+          content: fallbackData.content,
           error: error.message,
           metadata: { fallback: true }
         });
@@ -99,22 +105,91 @@ export class ScriptWriterService {
   }
 
   /**
-   * 生成单集剧本
+   * 生成单集剧本（结构化JSON）
    * @param {Object} storyBible
    * @param {Object} architecture
    * @param {number} episodeNumber
    * @param {Object} options
-   * @returns {Promise<string>}
+   * @returns {Promise<Object>} 结构化剧本数据
    */
   async generateEpisodeScript(storyBible, architecture, episodeNumber, options = {}) {
-    const { style = 'narrated', rhythmTemplate = 'standard_90' } = options;
+    const {
+      style = 'narrated',
+      rhythmTemplate = 'standard_90',
+      userFeedback = null,
+      previousEpisode = null,  // 前集摘要
+      nextEpisode = null       // 后集摘要
+    } = options;
+
+    const episode = architecture.episodes.find(e => e.number === episodeNumber);
+
+    // 打印传入的上下文信息
+    console.log('\n' + '='.repeat(60));
+    console.log(`[ScriptWriter] 第 ${episodeNumber} 集剧本生成 - 上下文信息`);
+    console.log('='.repeat(60));
+
+    console.log('\n【本集信息】');
+    console.log(`- 标题: ${episode?.title || '待定'}`);
+    console.log(`- 卖点: ${episode?.logline || '待定'}`);
+    console.log(`- 关键角色: ${(episode?.keyCharacters || []).join(', ') || '未指定'}`);
+
+    console.log('\n【本集事件】');
+    const episodeEvents = (episode?.assignedEvents || []).map(eventId => {
+      const event = storyBible.events?.find(e => e.id === eventId);
+      return event ? { id: event.id, summary: event.summary } : null;
+    }).filter(Boolean);
+    episodeEvents.forEach((e, i) => {
+      console.log(`  ${i + 1}. [${e.id}] ${e.summary}`);
+    });
+
+    console.log('\n【爽点规划】');
+    if (episode?.beatMap) {
+      Object.entries(episode.beatMap)
+        .filter(([_, v]) => v && v.type)
+        .forEach(([pos, v]) => {
+          console.log(`  - ${pos}: ${v.type}`);
+        });
+    } else {
+      console.log('  未指定');
+    }
+
+    console.log('\n【角色列表】');
+    (storyBible.characters || []).slice(0, 5).forEach(char => {
+      console.log(`  - [${char.id}] ${char.name} (${char.role})`);
+    });
+
+    // 打印相邻集信息
+    if (previousEpisode) {
+      console.log('\n【前集回顾】');
+      console.log(`- 第 ${previousEpisode.number} 集: ${previousEpisode.title}`);
+      console.log(`- 结尾状态: ${previousEpisode.endingState || '无'}`);
+    }
+
+    if (nextEpisode) {
+      console.log('\n【后集预告】');
+      console.log(`- 第 ${nextEpisode.number} 集: ${nextEpisode.title}`);
+      console.log(`- 开头状态: ${nextEpisode.openingState || '无'}`);
+    }
+
+    console.log('\n【用户修改建议】');
+    if (userFeedback) {
+      console.log(`  "${userFeedback}"`);
+    } else {
+      console.log('  无');
+    }
+
+    console.log('\n' + '='.repeat(60) + '\n');
 
     const prompt = generateScriptPrompt(storyBible, architecture, episodeNumber, {
       style,
-      rhythmTemplate
+      rhythmTemplate,
+      userFeedback,
+      previousEpisode,
+      nextEpisode
     });
 
     console.log(`[ScriptWriter] 第 ${episodeNumber} 集 prompt 长度: ${prompt.length}`);
+    console.log(`[ScriptWriter] 完整 Prompt:\n${prompt.substring(0, 2000)}${prompt.length > 2000 ? '...(截断)' : ''}`);
 
     const response = await llmService.chat([
       { role: 'user', content: prompt }
@@ -122,14 +197,225 @@ export class ScriptWriterService {
 
     console.log(`[ScriptWriter] 第 ${episodeNumber} 集 response 长度: ${response?.length || 0}`);
 
-    return response;
+    // 解析JSON响应
+    const scriptData = this.parseScriptResponse(response);
+
+    if (!scriptData || !scriptData.clips || scriptData.clips.length === 0) {
+      throw new Error('Failed to parse script JSON or no clips generated');
+    }
+
+    return scriptData;
   }
 
   /**
-   * 生成降级版剧本
+   * 提取剧本集摘要（用于传递给相邻集）
+   * @param {Object} episode - 已生成的剧本集
+   * @returns {Object} 摘要信息
+   */
+  extractEpisodeSummary(episode) {
+    if (!episode) return null;
+
+    // 提取结尾状态（最后一个片段的旁白和画面）
+    let endingState = '';
+    let openingState = '';
+
+    if (episode.clips && episode.clips.length > 0) {
+      const lastClip = episode.clips[episode.clips.length - 1];
+      const firstClip = episode.clips[0];
+
+      // 结尾状态：最后片段的旁白（截取前100字）
+      endingState = lastClip.narration?.substring(0, 100) || '';
+
+      // 开头状态：第一片段的旁白（截取前100字）
+      openingState = firstClip.narration?.substring(0, 100) || '';
+    }
+
+    // 提取关键情节（所有片段的标题）
+    const keyBeats = (episode.clips || []).map(clip => clip.segmentName).join(' → ');
+
+    return {
+      number: episode.number,
+      title: episode.title || '',
+      logline: episode.logline || '',
+      keyBeats,
+      endingState,
+      openingState,
+      summary: episode.summary?.emotionalArc || ''
+    };
+  }
+
+  /**
+   * 从 job.script 中获取相邻集摘要
+   * @param {Object} script - 已生成的剧本
+   * @param {number} episodeNumber - 当前集数
+   * @returns {Object} { previousEpisode, nextEpisode }
+   */
+  getAdjacentEpisodeSummaries(script, episodeNumber) {
+    const result = {
+      previousEpisode: null,
+      nextEpisode: null
+    };
+
+    if (!script || !script.episodes) return result;
+
+    // 获取前集
+    const prevEp = script.episodes.find(e => e.number === episodeNumber - 1);
+    if (prevEp) {
+      result.previousEpisode = this.extractEpisodeSummary(prevEp);
+    }
+
+    // 获取后集
+    const nextEp = script.episodes.find(e => e.number === episodeNumber + 1);
+    if (nextEp) {
+      result.nextEpisode = this.extractEpisodeSummary(nextEp);
+    }
+
+    return result;
+  }
+
+  /**
+   * 解析剧本响应（JSON格式）
+   * @param {string} response
+   * @returns {Object}
+   */
+  parseScriptResponse(response) {
+    if (!response) {
+      console.warn('[ScriptWriter] LLM 响应为空');
+      return null;
+    }
+
+    console.log(`[ScriptWriter] 原始响应长度: ${response.length}`);
+    console.log(`[ScriptWriter] 响应前500字符: ${response.substring(0, 500)}`);
+
+    // 尝试直接解析
+    try {
+      const parsed = JSON.parse(response);
+      console.log('[ScriptWriter] JSON 直接解析成功');
+      return this.normalizeScriptData(parsed);
+    } catch (e) {
+      console.warn('[ScriptWriter] JSON 直接解析失败:', e.message);
+
+      // 尝试提取代码块中的 JSON
+      const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        try {
+          const extracted = jsonMatch[1].trim();
+          const parsed = JSON.parse(extracted);
+          console.log('[ScriptWriter] 从代码块提取 JSON 成功');
+          return this.normalizeScriptData(parsed);
+        } catch (e2) {
+          console.warn('[ScriptWriter] 代码块 JSON 解析失败:', e2.message);
+        }
+      }
+
+      // 尝试使用增强JSON解析器
+      try {
+        const repaired = parseJSON(response);
+        if (repaired) {
+          console.log('[ScriptWriter] JSON 修复解析成功');
+          return this.normalizeScriptData(repaired);
+        }
+      } catch (e3) {
+        console.warn('[ScriptWriter] JSON 修复解析失败:', e3.message);
+      }
+    }
+
+    console.error('[ScriptWriter] 所有 JSON 解析尝试失败');
+    return null;
+  }
+
+  /**
+   * 标准化剧本数据
+   * @param {Object} data
+   * @returns {Object}
+   */
+  normalizeScriptData(data) {
+    // 确保clips数组存在且格式正确
+    const clips = (data.clips || []).map((clip, index) => ({
+      id: clip.id || `C${String(index + 1).padStart(2, '0')}`,
+      segment: clip.segment || `segment_${index}`,
+      segmentName: clip.segmentName || `片段${index + 1}`,
+      timeCode: clip.timeCode || { start: index * 15, end: (index + 1) * 15 },
+      narration: clip.narration || '',
+      visual: clip.visual || '',
+      dialogue: clip.dialogue || null,
+      emotion: clip.emotion || '中性',
+      beatType: clip.beatType || null,
+      bgm: clip.bgm || '',
+      sfx: clip.sfx || ''
+    }));
+
+    // 验证旁白字数（语速5字/秒）
+    for (const clip of clips) {
+      const duration = clip.timeCode.end - clip.timeCode.start;
+      const expectedChars = duration * 5;
+      const actualChars = clip.narration?.length || 0;
+
+      if (actualChars < expectedChars * 0.5) {
+        console.warn(`[ScriptWriter] 片段 "${clip.segmentName}" 旁白字数不足: ${actualChars}/${expectedChars} 字`);
+      }
+    }
+
+    return {
+      number: data.number,
+      title: data.title,
+      logline: data.logline,
+      totalDuration: data.totalDuration || 90,
+      style: data.style,
+      clips,
+      summary: {
+        emotionalArc: data.summary?.emotionalArc || '',
+        keyLine: data.summary?.keyLine || ''
+        // 移除 nextEpisode
+      }
+    };
+  }
+
+  /**
+   * 将结构化clips转换为Markdown（兼容显示）
+   * @param {Object} scriptData
+   * @returns {string}
+   */
+  clipsToMarkdown(scriptData) {
+    let md = `### 第${scriptData.number}集：${scriptData.title || '待定'}\n\n`;
+    md += `**卖点**：${scriptData.logline || '待定'}\n\n`;
+    md += `---\n\n`;
+
+    for (const clip of scriptData.clips) {
+      const timeCode = clip.timeCode;
+      md += `#### 【${clip.segmentName}】${timeCode.start}-${timeCode.end}s\n\n`;
+
+      if (clip.narration) {
+        md += `🎙️ **旁白**：\n> ${clip.narration}\n\n`;
+      }
+
+      if (clip.visual) {
+        md += `🖼️ **画面**：\n- ${clip.visual}\n\n`;
+      }
+
+      if (clip.dialogue) {
+        const char = clip.dialogue.character || '角色';
+        const line = clip.dialogue.line || clip.dialogue;
+        md += `💬 **对白**：\n${char}："${line}"\n\n`;
+      }
+
+      if (clip.bgm || clip.sfx) {
+        md += `🎵 **音频**：${clip.bgm || ''}${clip.sfx ? ' | 音效：' + clip.sfx : ''}\n\n`;
+      }
+
+      md += `---\n\n`;
+    }
+
+    // 移除下集预告，不再生成
+
+    return md;
+  }
+
+  /**
+   * 生成降级版剧本（结构化）
    * @param {Object} episode
    * @param {Object} storyBible
-   * @returns {string}
+   * @returns {Object}
    */
   generateFallbackScript(episode, storyBible) {
     const rhythm = getRhythmTemplate(90);
@@ -138,32 +424,41 @@ export class ScriptWriterService {
       .map(id => storyBible.events?.find(e => e.id === id))
       .filter(Boolean);
 
-    let script = `### 第${episode.number}集：${episode.title || '待定'}\n\n`;
-    script += `**卖点**：${episode.logline || '故事继续'}\n\n`;
-    script += `---\n\n`;
+    const clips = rhythm.segments.map((segment, index) => {
+      let narration = '故事继续...';
+      let visual = '待补充画面描述';
 
-    // 生成基本结构
-    for (const segment of rhythm.segments) {
-      script += `#### 【${segment.name}】${segment.timing[0]}-${segment.timing[1]}s\n\n`;
-      script += `**时间码**：${segment.timing[0]}.0-${segment.timing[1]}.0s\n\n`;
-
-      // 根据段落类型生成内容
       if (segment.name === '开场钩子') {
-        script += `🎙️ **旁白**：\n> 你敢信？${mainChar.name}的故事，就从这里开始...\n\n`;
+        narration = `你敢信？${mainChar.name}的故事，就从这里开始...`;
+        visual = '开场画面';
       } else if (events.length > 0) {
-        const event = events[Math.min(rhythm.segments.indexOf(segment), events.length - 1)];
-        script += `🎙️ **旁白**：\n> ${event.summary || '故事继续发展...'}\n\n`;
-      } else {
-        script += `🎙️ **旁白**：\n> 故事还在继续...\n\n`;
+        const event = events[Math.min(index, events.length - 1)];
+        narration = event?.summary || '故事继续发展...';
       }
 
-      script += `🖼️ **画面**：\n- [待补充画面描述]\n\n`;
-      script += `---\n\n`;
-    }
+      return {
+        id: `C${String(index + 1).padStart(2, '0')}`,
+        segment: segment.id || `segment_${index}`,
+        segmentName: segment.name,
+        timeCode: { start: segment.timing[0], end: segment.timing[1] },
+        narration,
+        visual,
+        dialogue: null,
+        emotion: '中性',
+        beatType: null,
+        bgm: '',
+        sfx: ''
+      };
+    });
 
-    script += `**注意**：这是自动生成的降级版剧本，请手动完善。\n`;
+    const content = this.clipsToMarkdown({
+      number: episode.number,
+      title: episode.title,
+      logline: episode.logline,
+      clips
+    });
 
-    return script;
+    return { clips, content };
   }
 
   /**
@@ -278,36 +573,42 @@ export class ScriptWriterService {
     try {
       if (onProgress) onProgress({ stage: 'generating', episode: episodeNumber });
 
-      const content = await this.generateEpisodeScript(storyBible, architecture, episodeNumber, options);
+      // generateEpisodeScript 返回结构化对象 { number, title, clips, ... }
+      const scriptData = await this.generateEpisodeScript(storyBible, architecture, episodeNumber, options);
 
       // 验证内容是否有效
-      if (!content || content.trim().length < 50) {
-        console.warn(`[ScriptWriter] 第 ${episodeNumber} 集内容无效或过短，使用 fallback`);
-        throw new Error('Script content is empty or too short');
+      if (!scriptData || !scriptData.clips || scriptData.clips.length === 0) {
+        console.warn(`[ScriptWriter] 第 ${episodeNumber} 集内容无效，使用 fallback`);
+        throw new Error('Script content is empty or has no clips');
       }
-
-      if (onProgress) onProgress({ stage: 'parsing', episode: episodeNumber });
-
-      const parsed = this.parseScriptContent(content);
 
       if (onProgress) onProgress({ stage: 'complete', episode: episodeNumber });
 
+      // 生成 Markdown 兼容版本
+      const content = this.clipsToMarkdown(scriptData);
+
       return {
         number: episodeNumber,
-        title: episode?.title,
-        content,
-        parsed,
+        title: scriptData.title || episode?.title,
+        logline: scriptData.logline,
+        clips: scriptData.clips,
+        content,  // Markdown 版本
+        summary: scriptData.summary || {},
         metadata: {
+          style: options.style,
+          totalDuration: scriptData.totalDuration,
           generatedAt: new Date().toISOString()
         }
       };
     } catch (error) {
       if (onProgress) onProgress({ stage: 'error', episode: episodeNumber, error: error.message });
 
+      const fallbackData = this.generateFallbackScript(episode, storyBible);
       return {
         number: episodeNumber,
         title: episode?.title,
-        content: this.generateFallbackScript(episode, storyBible),
+        clips: fallbackData.clips,
+        content: fallbackData.content,
         error: error.message,
         metadata: {
           fallback: true,

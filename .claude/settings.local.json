@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(npm run server:dev:*)",
+      "Bash(node:*)",
+      "Bash(npm install:*)",
+      "Bash(__NEW_LINE_396125e41d365c38__ echo \"=== 解析短文本 ===\")",
+      "Bash(__NEW_LINE_396125e41d365c38__ curl -s -X POST http://localhost:3001/api/novel/parse/4f9b1ce6-a3ad-4a9a-aef1-50009e1816cf -H \"Content-Type: application/json\")",
+      "Bash(curl:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(netstat:*)",
+      "Bash(timeout 120 tail:*)",
+      "Bash(taskkill:*)",
+      "Bash(cd g:\\\\机器学习\\\\novel-to-storyboard2\\\\novel-to-storyboard:*)",
+      "Bash(powershell:*)",
+      "Bash(cmd:*)",
+      "Bash(cd G:\\\\机器学习\\\\novel-to-storyboard2\\\\novel-to-storyboard:*)"
+    ]
+  }
+}

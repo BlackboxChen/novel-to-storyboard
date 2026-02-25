@@ -71,6 +71,11 @@ router.post('/generate/:jobId', async (req, res) => {
 /**
  * 生成单集剧本
  * POST /api/script/generate/:jobId/episode/:episodeNumber
+ *
+ * Body 参数:
+ * - style: 风格 (narrated/comic)
+ * - rhythmTemplate: 节奏模板
+ * - userFeedback: 用户修改建议（可选）
  */
 router.post('/generate/:jobId/episode/:episodeNumber', async (req, res) => {
   try {
@@ -80,13 +85,37 @@ router.post('/generate/:jobId/episode/:episodeNumber', async (req, res) => {
     }
 
     const episodeNumber = parseInt(req.params.episodeNumber);
-    const { style, rhythmTemplate } = req.body;
+    const { style, rhythmTemplate, userFeedback } = req.body;
+
+    console.log(`[ScriptRoutes] 生成单集剧本 - 第 ${episodeNumber} 集`);
+    if (userFeedback) {
+      console.log(`[ScriptRoutes] 用户修改建议: "${userFeedback}"`);
+    }
+
+    // 获取相邻集摘要（用于连贯性）
+    const { previousEpisode, nextEpisode } = scriptWriterService.getAdjacentEpisodeSummaries(
+      job.script,
+      episodeNumber
+    );
+
+    if (previousEpisode) {
+      console.log(`[ScriptRoutes] 已获取前集摘要: 第 ${previousEpisode.number} 集`);
+    }
+    if (nextEpisode) {
+      console.log(`[ScriptRoutes] 已获取后集摘要: 第 ${nextEpisode.number} 集`);
+    }
 
     const result = await scriptWriterService.generateEpisodeWithProgress(
       job.storyBible,
       job.architecture,
       episodeNumber,
-      { style: style || job.style || 'narrated', rhythmTemplate }
+      {
+        style: style || job.style || 'narrated',
+        rhythmTemplate,
+        userFeedback,  // 传递用户修改建议
+        previousEpisode,  // 传递前集摘要
+        nextEpisode       // 传递后集摘要
+      }
     );
 
     // 更新 job 中的剧本
@@ -107,6 +136,7 @@ router.post('/generate/:jobId/episode/:episodeNumber', async (req, res) => {
 
     res.json(result);
   } catch (error) {
+    console.error(`[ScriptRoutes] 生成单集剧本失败:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });

@@ -242,7 +242,7 @@
         <div id="storyboard-content" class="hidden">
           <div class="flex justify-between items-center mb-6">
             <h2 class="text-xl font-semibold">分镜</h2>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
               <select id="style-preset" class="bg-gray-700 rounded px-3 py-2 text-sm">
                 <option value="neutral_cinematic">Neutral Cinematic</option>
                 <option value="hitchcock">Hitchcock</option>
@@ -254,6 +254,10 @@
               <button onclick="generateStoryboard()" id="btn-storyboard" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded">
                 🎥 生成分镜
               </button>
+              <button onclick="stopStoryboard()" id="btn-stop-storyboard" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded hidden">
+                ⏹️ 停止
+              </button>
+              <span id="storyboard-progress" class="text-sm text-gray-400"></span>
             </div>
           </div>
 
@@ -307,6 +311,19 @@
       <div class="max-w-7xl mx-auto flex justify-between items-center">
         <div id="status-message" class="text-sm"></div>
         <button onclick="hideStatus()" class="text-gray-400 hover:text-white">✕</button>
+      </div>
+    </div>
+
+    <!-- 资产详情弹窗 -->
+    <div id="asset-modal" class="fixed inset-0 bg-black bg-opacity-75 hidden z-50 flex items-center justify-center p-4">
+      <div class="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="sticky top-0 bg-gray-800 p-4 border-b border-gray-700 flex justify-between items-center">
+          <h3 id="modal-title" class="text-lg font-semibold">资产详情</h3>
+          <button onclick="closeAssetModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+        </div>
+        <div id="modal-content" class="p-4">
+          <!-- 动态内容 -->
+        </div>
       </div>
     </div>
   </div>
@@ -605,39 +622,259 @@
       btn.disabled = false;
     }
 
-    // Generate storyboard
+    // Storyboard generation state
+    let storyboardGenerating = false;
+    let storyboardEventSource = null;
+
+    // Generate storyboard with SSE streaming
     async function generateStoryboard() {
       if (!currentJob || !currentJob.script) return;
 
       const btn = document.getElementById('btn-storyboard');
+      const stopBtn = document.getElementById('btn-stop-storyboard');
+      const progressSpan = document.getElementById('storyboard-progress');
+
       btn.textContent = '🎥 生成中...';
       btn.disabled = true;
+      stopBtn.classList.remove('hidden');
+      storyboardGenerating = true;
+      progressSpan.textContent = '正在连接...';
 
       const stylePreset = document.getElementById('style-preset').value;
-      showStatus('正在生成分镜...');
+      showStatus('正在生成分镜（批量模式 + 实时响应）...');
+
+      // 使用 SSE 流式响应
+      const url = `${API_BASE}/api/storyboard/generate/${currentJob.id}/stream?mode=A&stylePreset=${stylePreset}&useLLM=true`;
+      storyboardEventSource = new EventSource(url);
+
+      let completedEpisodes = 0;
+      let totalEpisodes = 0;
+
+      // 开始事件
+      storyboardEventSource.addEventListener('start', (e) => {
+        const data = JSON.parse(e.data);
+        totalEpisodes = data.totalEpisodes;
+        progressSpan.textContent = `开始处理 ${totalEpisodes} 集...`;
+        console.log('[SSE] 开始:', data);
+      });
+
+      // 进度事件
+      storyboardEventSource.addEventListener('progress', (e) => {
+        const data = JSON.parse(e.data);
+        progressSpan.textContent = `正在处理第 ${data.episodeNumber} 集...`;
+      });
+
+      // 单集完成事件
+      storyboardEventSource.addEventListener('episode', (e) => {
+        const data = JSON.parse(e.data);
+        completedEpisodes++;
+
+        progressSpan.textContent = `第 ${data.episodeNumber} 集完成 (${data.clipsCount} 片段)，耗时 ${(data.elapsed / 1000).toFixed(1)}s`;
+
+        // 实时更新分镜显示
+        if (data.storyboard) {
+          if (!currentJob.storyboard) {
+            currentJob.storyboard = { episodes: [], failedEpisodes: [] };
+          }
+          if (!Array.isArray(currentJob.storyboard.failedEpisodes)) {
+            currentJob.storyboard.failedEpisodes = [];
+          }
+
+          const existingIndex = currentJob.storyboard.episodes.findIndex(ep => ep.episodeNumber === data.episodeNumber);
+          if (existingIndex >= 0) {
+            currentJob.storyboard.episodes[existingIndex] = data.storyboard;
+          } else {
+            currentJob.storyboard.episodes.push(data.storyboard);
+            currentJob.storyboard.episodes.sort((a, b) => a.episodeNumber - b.episodeNumber);
+          }
+          currentJob.storyboard.failedEpisodes = currentJob.storyboard.failedEpisodes.filter(
+            f => f.episodeNumber !== data.episodeNumber
+          );
+
+          // 实时更新 UI
+          updateStoryboardTab();
+        }
+
+        console.log(`[SSE] 第 ${data.episodeNumber} 集完成:`, data);
+      });
+
+      // 单集错误事件
+      storyboardEventSource.addEventListener('episode_error', (e) => {
+        const data = JSON.parse(e.data);
+        console.error(`[SSE] 第 ${data.episodeNumber} 集失败:`, data.error);
+        if (!currentJob.storyboard) {
+          currentJob.storyboard = { episodes: [], failedEpisodes: [] };
+        }
+        if (!Array.isArray(currentJob.storyboard.failedEpisodes)) {
+          currentJob.storyboard.failedEpisodes = [];
+        }
+
+        const failure = {
+          episodeNumber: data.episodeNumber,
+          error: data.error,
+          failedAt: new Date().toISOString()
+        };
+        const failureIndex = currentJob.storyboard.failedEpisodes.findIndex(
+          f => f.episodeNumber === data.episodeNumber
+        );
+        if (failureIndex >= 0) {
+          currentJob.storyboard.failedEpisodes[failureIndex] = failure;
+        } else {
+          currentJob.storyboard.failedEpisodes.push(failure);
+        }
+
+        updateStoryboardTab();
+        showStatus(`第 ${data.episodeNumber} 集生成失败：${data.error}`, true);
+      });
+
+      // 完成事件
+      storyboardEventSource.addEventListener('complete', (e) => {
+        const data = JSON.parse(e.data);
+        const failedCount = Array.isArray(data.failedEpisodes) ? data.failedEpisodes.length : 0;
+
+        progressSpan.textContent = `已完成 ${data.completedEpisodes}/${data.totalEpisodes} 集，总耗时 ${(data.totalElapsed / 1000).toFixed(1)}s`;
+
+        // 刷新完整的 job 数据
+        fetch(`${API_BASE}/api/jobs/${currentJob.id}`)
+          .then(res => res.json())
+          .then(job => {
+            currentJob = job;
+            updateStoryboardTab();
+          });
+
+        if (failedCount > 0) {
+          showStatus(`分镜生成完成：成功 ${data.completedEpisodes} 集，失败 ${failedCount} 集（可单独重试）`, true);
+        } else {
+          showStatus(`分镜生成完成！共 ${data.completedEpisodes} 集`);
+        }
+        console.log('[SSE] 完成:', data);
+
+        // 清理
+        storyboardEventSource.close();
+        storyboardEventSource = null;
+        btn.textContent = '🎥 生成分镜';
+        btn.disabled = false;
+        stopBtn.classList.add('hidden');
+        storyboardGenerating = false;
+      });
+
+      // 错误事件
+      storyboardEventSource.addEventListener('error', (e) => {
+        if (e.data) {
+          const data = JSON.parse(e.data);
+          showStatus('生成失败：' + data.error, true);
+          progressSpan.textContent = '生成失败';
+        } else {
+          showStatus('连接中断', true);
+          progressSpan.textContent = '连接中断';
+        }
+
+        console.error('[SSE] 错误:', e);
+
+        storyboardEventSource.close();
+        storyboardEventSource = null;
+        btn.textContent = '🎥 生成分镜';
+        btn.disabled = false;
+        stopBtn.classList.add('hidden');
+        storyboardGenerating = false;
+      });
+
+      // 连接错误
+      storyboardEventSource.onerror = (err) => {
+        if (storyboardEventSource.readyState === EventSource.CLOSED) {
+          return; // 正常关闭
+        }
+
+        console.error('[SSE] 连接错误:', err);
+        showStatus('连接服务器失败', true);
+        progressSpan.textContent = '连接失败';
+
+        storyboardEventSource.close();
+        storyboardEventSource = null;
+        btn.textContent = '🎥 生成分镜';
+        btn.disabled = false;
+        stopBtn.classList.add('hidden');
+        storyboardGenerating = false;
+      };
+    }
+
+    // Stop storyboard generation
+    async function stopStoryboard() {
+      if (!storyboardGenerating) return;
+
+      const btn = document.getElementById('btn-storyboard');
+      const stopBtn = document.getElementById('btn-stop-storyboard');
+      const progressSpan = document.getElementById('storyboard-progress');
 
       try {
-        const response = await fetch(`${API_BASE}/api/storyboard/generate/${currentJob.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'A', stylePreset })
+        // 关闭 SSE 连接
+        if (storyboardEventSource) {
+          storyboardEventSource.close();
+          storyboardEventSource = null;
+        }
+
+        // 调用后端停止接口
+        await fetch(`${API_BASE}/api/storyboard/abort/${currentJob.id}`, {
+          method: 'POST'
         });
 
-        const data = await response.json();
-
-        if (response.ok) {
-          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
-          updateStoryboardTab();
-          showStatus('分镜生成完成！');
-        } else {
-          showStatus('生成失败：' + (data.error || '未知错误'), true);
-        }
+        progressSpan.textContent = '已停止';
+        showStatus('分镜生成已停止');
       } catch (err) {
-        showStatus('生成失败：' + err.message, true);
+        console.error('停止失败:', err);
       }
 
       btn.textContent = '🎥 生成分镜';
       btn.disabled = false;
+      stopBtn.classList.add('hidden');
+      storyboardGenerating = false;
+    }
+
+    // Regenerate single episode storyboard
+    async function regenerateStoryboardEpisode(episodeNumber) {
+      if (!currentJob || !currentJob.script) return;
+      if (storyboardGenerating) {
+        showStatus('当前有分镜任务在执行，请先停止后再重试单集', true);
+        return;
+      }
+
+      const btn = document.getElementById(`btn-storyboard-regen-${episodeNumber}`);
+      if (btn) {
+        btn.textContent = '⏳ 重试中...';
+        btn.disabled = true;
+      }
+
+      const stylePreset = document.getElementById('style-preset').value;
+      showStatus(`正在重试第 ${episodeNumber} 集分镜...`);
+
+      try {
+        const response = await fetch(`${API_BASE}/api/storyboard/generate/${currentJob.id}/episode/${episodeNumber}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'A',
+            stylePreset,
+            useLLM: true,
+            useBatch: true
+          })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          currentJob = await (await fetch(`${API_BASE}/api/jobs/${currentJob.id}`)).json();
+          updateStoryboardTab();
+          showStatus(`第 ${episodeNumber} 集分镜已重新生成`);
+        } else {
+          showStatus(`第 ${episodeNumber} 集重试失败：${data.error || '未知错误'}`, true);
+        }
+      } catch (err) {
+        showStatus(`第 ${episodeNumber} 集重试失败：${err.message}`, true);
+      }
+
+      if (btn) {
+        btn.textContent = '🔄 重试本集';
+        btn.disabled = false;
+      }
     }
 
     // Generate assets
@@ -812,7 +1049,7 @@
             <div class="flex items-center gap-2">
               ${ep.metadata?.fallback ? '<span class="text-xs bg-yellow-600 px-2 py-1 rounded">降级版</span>' : ''}
               ${ep.error ? '<span class="text-xs bg-red-600 px-2 py-1 rounded">错误</span>' : ''}
-              <button onclick="regenerateEpisode(${ep.number})" class="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded" id="btn-regen-${ep.number}">
+              <button onclick="showRegenerateModal(${ep.number})" class="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded" id="btn-regen-${ep.number}">
                 🔄 重新生成
               </button>
               <span class="text-sm text-gray-400">${ep.metadata?.generatedAt ? new Date(ep.metadata.generatedAt).toLocaleString() : ''}</span>
@@ -826,21 +1063,59 @@
       `).join('');
     }
 
+    // Show regenerate modal with user feedback input
+    function showRegenerateModal(episodeNumber) {
+      const existingModal = document.getElementById('regen-modal');
+      if (existingModal) existingModal.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'regen-modal';
+      modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+      modal.innerHTML = `
+        <div class="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4">
+          <h3 class="text-lg font-bold mb-4">重新生成第 ${episodeNumber} 集剧本</h3>
+          <div class="mb-4">
+            <label class="block text-sm text-gray-400 mb-2">修改建议（可选）</label>
+            <textarea id="regen-feedback" class="w-full bg-gray-700 border border-gray-600 rounded p-3 text-sm" rows="4" placeholder="例如：增加更多对白、旁白要更生动、某个角色的戏份要增加..."></textarea>
+          </div>
+          <div class="flex justify-end gap-3">
+            <button onclick="closeRegenerateModal()" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded">取消</button>
+            <button onclick="regenerateEpisode(${episodeNumber})" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded" id="btn-regen-confirm-${episodeNumber}">确认生成</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    // Close regenerate modal
+    function closeRegenerateModal() {
+      const modal = document.getElementById('regen-modal');
+      if (modal) modal.remove();
+    }
+
     // Regenerate single episode script
     async function regenerateEpisode(episodeNumber) {
       if (!currentJob) return;
 
-      const btn = document.getElementById(`btn-regen-${episodeNumber}`);
-      btn.textContent = '⏳ 生成中...';
-      btn.disabled = true;
+      const feedbackEl = document.getElementById('regen-feedback');
+      const userFeedback = feedbackEl ? feedbackEl.value.trim() : '';
 
-      showStatus(`正在重新生成第 ${episodeNumber} 集剧本...`);
+      // Close modal
+      closeRegenerateModal();
+
+      const btn = document.getElementById(`btn-regen-${episodeNumber}`);
+      if (btn) {
+        btn.textContent = '⏳ 生成中...';
+        btn.disabled = true;
+      }
+
+      showStatus(`正在重新生成第 ${episodeNumber} 集剧本...${userFeedback ? '（包含修改建议）' : ''}`);
 
       try {
         const response = await fetch(`${API_BASE}/api/script/generate/${currentJob.id}/episode/${episodeNumber}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
+          body: JSON.stringify({ userFeedback: userFeedback || null })
         });
 
         const data = await response.json();
@@ -857,8 +1132,10 @@
         showStatus('生成失败：' + err.message, true);
       }
 
-      btn.textContent = '🔄 重新生成';
-      btn.disabled = false;
+      if (btn) {
+        btn.textContent = '🔄 重新生成';
+        btn.disabled = false;
+      }
     }
 
     // Update Storyboard Tab
@@ -876,28 +1153,217 @@
       content.classList.remove('hidden');
 
       const storyboard = currentJob.storyboard;
-      if (!storyboard || !storyboard.episodes?.length) {
+      const failedEpisodes = storyboard?.failedEpisodes || [];
+      if ((!storyboard || !storyboard.episodes?.length) && failedEpisodes.length === 0) {
         document.getElementById('storyboard-episodes').innerHTML = '<p class="text-gray-500 text-center py-8">点击"生成分镜"开始</p>';
         return;
       }
 
-      document.getElementById('storyboard-episodes').innerHTML = storyboard.episodes.map(ep => `
+      const renderedEpisodes = storyboard?.episodes || [];
+      const renderedEpisodeNumberSet = new Set(renderedEpisodes.map(ep => ep.episodeNumber));
+      const failedEpisodeCards = failedEpisodes
+        .filter(f => !renderedEpisodeNumberSet.has(f.episodeNumber))
+        .sort((a, b) => a.episodeNumber - b.episodeNumber)
+        .map(f => `
+          <div class="bg-red-900/30 border border-red-700 rounded-lg p-4 mb-4">
+            <div class="flex justify-between items-start gap-3">
+              <div>
+                <h4 class="font-medium text-red-300">第 ${f.episodeNumber} 集分镜生成失败</h4>
+                <p class="text-sm text-red-200 mt-1">${f.error || '未知错误'}</p>
+                <p class="text-xs text-red-300/80 mt-1">${f.failedAt ? new Date(f.failedAt).toLocaleString() : ''}</p>
+              </div>
+              <button onclick="regenerateStoryboardEpisode(${f.episodeNumber})" id="btn-storyboard-regen-${f.episodeNumber}" class="text-xs bg-red-600 hover:bg-red-700 px-3 py-1 rounded whitespace-nowrap">
+                🔄 重试本集
+              </button>
+            </div>
+          </div>
+        `).join('');
+
+      document.getElementById('storyboard-episodes').innerHTML = `
+      ${failedEpisodeCards}
+      ${renderedEpisodes.map(ep => `
         <div class="bg-gray-700 rounded-lg p-4">
-          <h4 class="font-medium mb-4">第 ${ep.episodeNumber} 集 - ${ep.clips?.length || 0} 个片段</h4>
-          <div class="grid grid-cols-2 gap-4">
-            ${(ep.clips || []).slice(0, 6).map(clip => `
-              <div class="clip-card bg-gray-800 rounded p-3">
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-sm font-medium">${clip.id}: ${clip.title}</span>
-                  <span class="text-xs text-gray-500">${clip.duration?.total || 0}s</span>
+          <div class="flex justify-between items-center mb-4 gap-3">
+            <h4 class="font-medium">第 ${ep.episodeNumber} 集 - ${ep.clips?.length || 0} 个片段</h4>
+            <button onclick="regenerateStoryboardEpisode(${ep.episodeNumber})" id="btn-storyboard-regen-${ep.episodeNumber}" class="text-xs bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded whitespace-nowrap">
+              🔄 重试本集
+            </button>
+          </div>
+          <div class="space-y-4">
+            ${(ep.clips || []).map(clip => `
+              <div class="clip-card bg-gray-800 rounded p-4 border border-gray-600">
+                <div class="flex justify-between items-center mb-3">
+                  <div>
+                    <span class="font-medium text-blue-400">${clip.id}</span>
+                    <span class="ml-2">${clip.title || '未命名片段'}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs bg-gray-700 px-2 py-1 rounded">${clip.duration?.total || 0}s</span>
+                    <span class="text-xs bg-purple-700 px-2 py-1 rounded">${clip.emotion || ''}</span>
+                  </div>
                 </div>
-                <p class="text-xs text-gray-400 mb-2">${clip.emotion || ''}</p>
-                <div class="prompt-box text-xs text-gray-300 bg-gray-900 p-2 rounded max-h-32 overflow-y-auto">${(clip.prompt?.combined || '').slice(0, 200)}...</div>
+
+                <!-- 意图 -->
+                ${clip.intent ? `<p class="text-sm text-gray-300 mb-3"><strong>意图：</strong>${clip.intent}</p>` : ''}
+
+                <!-- 音频信息 -->
+                ${(clip.narration || clip.dialogue || clip.bgm || clip.sfx) ? `
+                <div class="mb-3 p-2 bg-gray-900 rounded border-l-4 border-amber-500">
+                  ${clip.narration ? `<p class="text-sm mb-1"><strong class="text-amber-400">🎙️ 旁白：</strong><span class="text-gray-300">"${clip.narration}"</span></p>` : ''}
+                  ${clip.dialogue ? `<p class="text-sm mb-1"><strong class="text-green-400">💬 对白：</strong><span class="text-gray-300">${clip.dialogue}</span></p>` : ''}
+                  ${clip.bgm ? `<p class="text-sm mb-1"><strong class="text-blue-400">🎵 BGM：</strong><span class="text-gray-400">${clip.bgm}</span></p>` : ''}
+                  ${clip.sfx ? `<p class="text-sm"><strong class="text-purple-400">🔊 音效：</strong><span class="text-gray-400">${clip.sfx}</span></p>` : ''}
+                </div>
+                ` : ''}
+
+                <!-- 5D 框架 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 text-xs">
+                  ${clip.prompt?.d1_subject ? `<div class="bg-gray-900 p-2 rounded"><strong class="text-red-400">D1 主体:</strong> <span class="text-gray-300">${clip.prompt.d1_subject}</span></div>` : ''}
+                  ${clip.prompt?.d2_environment ? `<div class="bg-gray-900 p-2 rounded"><strong class="text-green-400">D2 环境:</strong> <span class="text-gray-300">${clip.prompt.d2_environment}</span></div>` : ''}
+                  ${clip.prompt?.d3_material ? `<div class="bg-gray-900 p-2 rounded"><strong class="text-yellow-400">D3 材质:</strong> <span class="text-gray-300">${clip.prompt.d3_material}</span></div>` : ''}
+                  ${clip.prompt?.d4_camera ? `<div class="bg-gray-900 p-2 rounded"><strong class="text-blue-400">D4 镜头:</strong> <span class="text-gray-300">${clip.prompt.d4_camera}</span></div>` : ''}
+                  ${clip.prompt?.d5_mood ? `<div class="bg-gray-900 p-2 rounded"><strong class="text-purple-400">D5 氛围:</strong> <span class="text-gray-300">${clip.prompt.d5_mood}</span></div>` : ''}
+                </div>
+
+                <!-- 镜头描述 (中文) -->
+                ${clip.camera ? `
+                <div class="mb-3">
+                  <strong class="text-sm text-cyan-400">镜头与节奏：</strong>
+                  <pre class="text-xs text-gray-300 bg-gray-900 p-2 rounded mt-1 whitespace-pre-wrap">${clip.camera}</pre>
+                </div>
+                ` : ''}
+
+                <!-- 关键帧参考 -->
+                ${clip.prompt?.keyframeRef ? `
+                <details class="mb-3">
+                  <summary class="cursor-pointer text-sm text-cyan-400 hover:text-cyan-300">🖼️ 关键帧参考</summary>
+                  <div class="text-xs bg-gray-900 p-3 rounded mt-2 space-y-2">
+                    <p><strong class="text-gray-400">描述:</strong> <span class="text-gray-300">${clip.prompt.keyframeRef.description || '-'}</span></p>
+                    ${clip.prompt.keyframeRef.prompt ? `
+                    <div>
+                      <strong class="text-gray-400">英文提示词:</strong>
+                      <p class="text-green-300 mt-1 break-words">${clip.prompt.keyframeRef.prompt}</p>
+                    </div>
+                    ` : ''}
+                    ${clip.prompt.keyframeRef.chinesePrompt ? `
+                    <div>
+                      <strong class="text-gray-400">中文提示词:</strong>
+                      <p class="text-yellow-300 mt-1 break-words">${clip.prompt.keyframeRef.chinesePrompt}</p>
+                    </div>
+                    ` : ''}
+                    <p><strong class="text-gray-400">构图:</strong> <span class="text-gray-300">${clip.prompt.keyframeRef.composition || '-'}</span></p>
+                    <p><strong class="text-gray-400">色调:</strong> <span class="text-gray-300">${clip.prompt.keyframeRef.colorPalette || '-'}</span></p>
+                    <p><strong class="text-gray-400">光线参考:</strong> <span class="text-gray-300">${clip.prompt.keyframeRef.lightingRef || '-'}</span></p>
+                    <p><strong class="text-gray-400">氛围参考:</strong> <span class="text-gray-300">${clip.prompt.keyframeRef.moodBoard || '-'}</span></p>
+                    <p><strong class="text-gray-400">风格参考:</strong> <span class="text-gray-300">${clip.prompt.keyframeRef.styleRef || '-'}</span></p>
+                  </div>
+                </details>
+                ` : ''}
+
+                <!-- 锚点标识符 -->
+                ${clip.prompt?.anchors?.characters?.length || clip.prompt?.anchors?.locations?.length ? `
+                <details class="mb-3">
+                  <summary class="cursor-pointer text-sm text-indigo-400 hover:text-indigo-300">🏷️ 锚点标识符</summary>
+                  <div class="text-xs bg-gray-900 p-3 rounded mt-2 space-y-1">
+                    ${clip.prompt.anchors.characters?.length ? `
+                      <p><strong class="text-gray-400">角色:</strong>
+                        ${clip.prompt.anchors.characters.map(c => `<code class="bg-gray-700 px-1 rounded text-blue-300">${c.anchor}</code>`).join(' ')}
+                      </p>
+                    ` : ''}
+                    ${clip.prompt.anchors.locations?.length ? `
+                      <p><strong class="text-gray-400">场景:</strong>
+                        ${clip.prompt.anchors.locations.map(l => `<code class="bg-gray-700 px-1 rounded text-green-300">${l.anchor}</code>`).join(' ')}
+                      </p>
+                    ` : ''}
+                    ${clip.prompt.anchors.props?.length ? `
+                      <p><strong class="text-gray-400">道具:</strong>
+                        ${clip.prompt.anchors.props.map(p => `<code class="bg-gray-700 px-1 rounded text-yellow-300">${p.anchor}</code>`).join(' ')}
+                      </p>
+                    ` : ''}
+                  </div>
+                </details>
+                ` : ''}
+
+                <!-- 转场 -->
+                ${clip.transition ? `<p class="text-xs text-gray-400 mb-3"><strong>转场：</strong>${clip.transition}</p>` : ''}
+
+                <!-- 中文提示词 -->
+                ${clip.prompt?.chinese ? `
+                <details class="mb-2">
+                  <summary class="cursor-pointer text-sm text-emerald-400 hover:text-emerald-300">🇨🇳 中文提示词（含音频）</summary>
+                  <div class="text-xs text-gray-300 bg-gray-900 p-3 rounded mt-2 whitespace-pre-wrap">${clip.prompt.chinese}</div>
+                </details>
+                ` : ''}
+
+                <!-- 完整英文提示词 -->
+                <details class="mb-2">
+                  <summary class="cursor-pointer text-sm text-gray-400 hover:text-gray-200">📝 英文提示词 (combined)</summary>
+                  <div class="prompt-box text-xs text-gray-300 bg-gray-900 p-3 rounded mt-2 whitespace-pre-wrap">${clip.prompt?.combined || '无'}</div>
+                </details>
+
+                <!-- 负面提示词 -->
+                ${clip.prompt?.negative ? `
+                <details>
+                  <summary class="cursor-pointer text-sm text-red-400 hover:text-red-300">🚫 负面提示词</summary>
+                  <div class="text-xs text-gray-400 bg-gray-900 p-3 rounded mt-2">${clip.prompt.negative}</div>
+                </details>
+                ` : ''}
+
+                <!-- 去AI味元素 -->
+                ${clip.prompt?.imperfections || clip.prompt?.randomWords || clip.prompt?.foregroundLayer ? `
+                <details class="mt-2">
+                  <summary class="cursor-pointer text-sm text-orange-400 hover:text-orange-300">✨ 去AI味元素</summary>
+                  <div class="text-xs bg-gray-900 p-3 rounded mt-2 space-y-1">
+                    ${clip.prompt.imperfections?.length ? `<p><strong class="text-gray-400">瑕疵:</strong> ${clip.prompt.imperfections.join(', ')}</p>` : ''}
+                    ${clip.prompt.randomWords?.length ? `<p><strong class="text-gray-400">随机词:</strong> ${clip.prompt.randomWords.join(', ')}</p>` : ''}
+                    ${clip.prompt.foregroundLayer ? `<p><strong class="text-gray-400">前景层:</strong> ${clip.prompt.foregroundLayer}</p>` : ''}
+                  </div>
+                </details>
+                ` : ''}
+
+                <!-- 关键帧参考 -->
+                ${clip.prompt?.keyframeRef ? `
+                <details class="mt-2">
+                  <summary class="cursor-pointer text-sm text-cyan-400 hover:text-cyan-300">🖼️ 关键帧参考</summary>
+                  <div class="text-xs bg-gray-900 p-3 rounded mt-2 space-y-2">
+                    <p><strong class="text-gray-400">描述:</strong> ${clip.prompt.keyframeRef.description || '-'}</p>
+                    ${clip.prompt.keyframeRef.prompt ? `
+                    <div>
+                      <strong class="text-gray-400">英文提示词:</strong>
+                      <p class="text-green-300 mt-1 break-words">${clip.prompt.keyframeRef.prompt}</p>
+                    </div>
+                    ` : ''}
+                    ${clip.prompt.keyframeRef.chinesePrompt ? `
+                    <div>
+                      <strong class="text-gray-400">中文提示词:</strong>
+                      <p class="text-yellow-300 mt-1 break-words">${clip.prompt.keyframeRef.chinesePrompt}</p>
+                    </div>
+                    ` : ''}
+                    <p><strong class="text-gray-400">构图:</strong> ${clip.prompt.keyframeRef.composition || '-'}</p>
+                    <p><strong class="text-gray-400">色彩:</strong> ${clip.prompt.keyframeRef.colorPalette || '-'}</p>
+                    <p><strong class="text-gray-400">光线:</strong> ${clip.prompt.keyframeRef.lightingRef || '-'}</p>
+                    <p><strong class="text-gray-400">氛围:</strong> ${clip.prompt.keyframeRef.moodBoard || '-'}</p>
+                    <p><strong class="text-gray-400">风格:</strong> ${clip.prompt.keyframeRef.styleRef || '-'}</p>
+                  </div>
+                </details>
+                ` : ''}
+
+                <!-- 锚点标识符 -->
+                ${clip.prompt?.anchors?.characters?.length || clip.prompt?.anchors?.locations?.length ? `
+                <details class="mt-2">
+                  <summary class="cursor-pointer text-sm text-indigo-400 hover:text-indigo-300">🏷️ 锚点标识符</summary>
+                  <div class="text-xs bg-gray-900 p-3 rounded mt-2 space-y-1">
+                    ${clip.prompt.anchors.characters?.length ? `<p><strong class="text-gray-400">角色:</strong> ${clip.prompt.anchors.characters.map(c => c.anchor).join(', ')}</p>` : ''}
+                    ${clip.prompt.anchors.locations?.length ? `<p><strong class="text-gray-400">场景:</strong> ${clip.prompt.anchors.locations.map(l => l.anchor).join(', ')}</p>` : ''}
+                  </div>
+                </details>
+                ` : ''}
               </div>
             `).join('')}
           </div>
         </div>
-      `).join('');
+      `).join('')}
+      `;
     }
 
     // Update Assets Tab
@@ -922,25 +1388,286 @@
         return;
       }
 
-      // 角色资产
-      document.getElementById('assets-characters').innerHTML = (assets.characters || []).map(c => `
-        <div class="bg-gray-600 rounded p-2">
+      // 角色资产 - 可点击查看详情
+      document.getElementById('assets-characters').innerHTML = (assets.characters || []).map((c, idx) => `
+        <div class="bg-gray-600 rounded p-3 cursor-pointer hover:bg-gray-500 transition-colors"
+             onclick="showCharacterAsset(${idx})">
           <div class="font-medium text-sm mb-1">${c.characterName}</div>
-          <div class="text-xs text-gray-400">点击查看提示词</div>
+          <div class="text-xs text-gray-400 flex items-center gap-1">
+            <span class="text-blue-400">📄</span> 点击查看提示词
+          </div>
+          ${c.turnaround ? '<div class="text-xs text-green-400 mt-1">✓ 四视图</div>' : ''}
+          ${c.expressions ? '<div class="text-xs text-purple-400">✓ 表情参考</div>' : ''}
         </div>
       `).join('') || '<p class="text-gray-500 text-sm">暂无角色资产</p>';
 
-      // 场景资产
-      document.getElementById('assets-scenes').innerHTML = (assets.scenes || []).map(s => `
-        <div class="bg-gray-600 rounded p-2">
+      // 场景资产 - 可点击查看详情
+      document.getElementById('assets-scenes').innerHTML = (assets.scenes || []).map((s, idx) => `
+        <div class="bg-gray-600 rounded p-3 cursor-pointer hover:bg-gray-500 transition-colors"
+             onclick="showSceneAsset(${idx})">
           <div class="font-medium text-sm mb-1">${s.sceneName}</div>
-          <div class="text-xs text-gray-400">${s.mood || ''}</div>
+          <div class="text-xs text-gray-400">${s.mood || s.lighting || '场景参考'}</div>
+          ${s.variations ? '<div class="text-xs text-green-400 mt-1">✓ 多视角</div>' : ''}
         </div>
       `).join('') || '<p class="text-gray-500 text-sm">暂无场景资产</p>';
 
-      // 道具资产
-      document.getElementById('assets-props').innerHTML = '<p class="text-gray-500 text-sm">暂无道具资产</p>';
+      // 道具资产 - 可点击查看详情
+      document.getElementById('assets-props').innerHTML = (assets.props || []).map((p, idx) => `
+        <div class="bg-gray-600 rounded p-3 cursor-pointer hover:bg-gray-500 transition-colors"
+             onclick="showPropAsset(${idx})">
+          <div class="font-medium text-sm mb-1">${p.propName}</div>
+          <div class="text-xs text-gray-400">${p.material || '道具参考'}</div>
+          ${p.views ? '<div class="text-xs text-green-400 mt-1">✓ 多视角</div>' : ''}
+        </div>
+      `).join('') || '<p class="text-gray-500 text-sm">暂无道具资产</p>';
     }
+
+    // 显示角色资产详情弹窗
+    function showCharacterAsset(idx) {
+      const assets = currentJob?.assets;
+      if (!assets || !assets.characters || !assets.characters[idx]) return;
+
+      const c = assets.characters[idx];
+      document.getElementById('modal-title').textContent = `角色资产: ${c.characterName}`;
+
+      let html = `
+        <div class="space-y-4">
+          <!-- 基础提示词 -->
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-blue-400">基础描述</h4>
+            <pre class="text-xs text-gray-300 whitespace-pre-wrap">${c.basePrompt || '无'}</pre>
+          </div>
+
+          <!-- 变体 -->
+          ${c.variations ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-green-400">角色变体</h4>
+            <div class="space-y-2">
+              ${Object.entries(c.variations).map(([key, v]) => `
+                <details class="bg-gray-800 rounded">
+                  <summary class="cursor-pointer p-2 text-sm text-gray-300 hover:text-white">${v.description || key}</summary>
+                  <div class="p-2 border-t border-gray-700">
+                    <p class="text-xs text-gray-400 mb-1">Prompt:</p>
+                    <pre class="text-xs text-gray-300 whitespace-pre-wrap">${v.prompt || '无'}</pre>
+                    ${v.negative ? `<p class="text-xs text-red-400 mt-2">Negative: ${v.negative}</p>` : ''}
+                  </div>
+                </details>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- 四视图 -->
+          ${c.turnaround ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-purple-400">四视图 (Turnaround)</h4>
+            <div class="grid grid-cols-2 gap-2 mb-3">
+              ${Object.entries(c.turnaround.views || {}).map(([key, view]) => `
+                <div class="bg-gray-800 rounded p-2">
+                  <div class="text-xs font-medium text-gray-400 mb-1">${view.angleCn || view.angle}</div>
+                  <pre class="text-xs text-gray-300 whitespace-pre-wrap">${view.prompt || ''}</pre>
+                </div>
+              `).join('')}
+            </div>
+            <details>
+              <summary class="cursor-pointer text-sm text-gray-400">整合四视图提示词</summary>
+              <pre class="text-xs text-gray-300 whitespace-pre-wrap mt-2">${c.turnaround.combinedPrompt || ''}</pre>
+            </details>
+            <details class="mt-2">
+              <summary class="cursor-pointer text-sm text-red-400">Negative Prompt</summary>
+              <pre class="text-xs text-gray-400 whitespace-pre-wrap mt-2">${c.turnaround.negativePrompt || ''}</pre>
+            </details>
+          </div>
+          ` : ''}
+
+          <!-- 表情参考 -->
+          ${c.expressions ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-yellow-400">表情参考 (${c.expressions.expressions?.length || 0}种)</h4>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+              ${(c.expressions.expressions || []).map(expr => `
+                <div class="bg-gray-800 rounded p-2">
+                  <div class="text-xs font-medium text-gray-300 mb-1">${expr.name}</div>
+                  <div class="text-xs text-gray-500">${expr.description}</div>
+                </div>
+              `).join('')}
+            </div>
+            <details>
+              <summary class="cursor-pointer text-sm text-gray-400">整合表情图提示词</summary>
+              <pre class="text-xs text-gray-300 whitespace-pre-wrap mt-2">${c.expressions.combinedPrompt || ''}</pre>
+            </details>
+          </div>
+          ` : ''}
+
+          <!-- 关键特征 -->
+          ${c.keyFeatures?.length ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-orange-400">关键特征</h4>
+            <div class="flex gap-2 flex-wrap">
+              ${c.keyFeatures.map(f => `<span class="text-xs bg-gray-600 px-2 py-1 rounded">${f}</span>`).join('')}
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- 色彩 -->
+          ${c.colorPalette ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-pink-400">色彩方案</h4>
+            <div class="flex gap-4 text-xs">
+              <span>主色: ${c.colorPalette.primary || '-'}</span>
+              <span>辅色: ${c.colorPalette.secondary || '-'}</span>
+              <span>强调: ${c.colorPalette.accent || '-'}</span>
+            </div>
+          </div>
+          ` : ''}
+        </div>
+      `;
+
+      document.getElementById('modal-content').innerHTML = html;
+      document.getElementById('asset-modal').classList.remove('hidden');
+    }
+
+    // 显示场景资产详情弹窗
+    function showSceneAsset(idx) {
+      const assets = currentJob?.assets;
+      if (!assets || !assets.scenes || !assets.scenes[idx]) return;
+
+      const s = assets.scenes[idx];
+      document.getElementById('modal-title').textContent = `场景资产: ${s.sceneName}`;
+
+      let html = `
+        <div class="space-y-4">
+          <!-- 基础描述 -->
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-blue-400">基础描述</h4>
+            <pre class="text-xs text-gray-300 whitespace-pre-wrap">${s.basePrompt || '无'}</pre>
+          </div>
+
+          <!-- 场景信息 -->
+          <div class="bg-gray-700 rounded p-3">
+            <div class="grid grid-cols-3 gap-4 text-xs">
+              <div><span class="text-gray-400">时间:</span> ${s.time || '-'}</div>
+              <div><span class="text-gray-400">天气:</span> ${s.weather || '-'}</div>
+              <div><span class="text-gray-400">氛围:</span> ${s.mood || '-'}</div>
+            </div>
+          </div>
+
+          <!-- 变体 -->
+          ${s.variations ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-green-400">场景视角</h4>
+            <div class="space-y-2">
+              ${Object.entries(s.variations).map(([key, v]) => `
+                <details class="bg-gray-800 rounded">
+                  <summary class="cursor-pointer p-2 text-sm text-gray-300 hover:text-white">${key}</summary>
+                  <div class="p-2 border-t border-gray-700">
+                    <pre class="text-xs text-gray-300 whitespace-pre-wrap">${v.prompt || '无'}</pre>
+                    ${v.negative ? `<p class="text-xs text-red-400 mt-2">Negative: ${v.negative}</p>` : ''}
+                  </div>
+                </details>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- 时间变体 -->
+          ${s.timeVariants ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-purple-400">时间变体</h4>
+            <div class="space-y-2">
+              ${s.timeVariants.map(tv => `
+                <details class="bg-gray-800 rounded">
+                  <summary class="cursor-pointer p-2 text-sm text-gray-300 hover:text-white">${tv.time}</summary>
+                  <pre class="text-xs text-gray-300 whitespace-pre-wrap p-2">${tv.prompt || ''}</pre>
+                </details>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- Negative -->
+          ${s.negativePrompt ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-red-400">Negative Prompt</h4>
+            <pre class="text-xs text-gray-400 whitespace-pre-wrap">${s.negativePrompt}</pre>
+          </div>
+          ` : ''}
+        </div>
+      `;
+
+      document.getElementById('modal-content').innerHTML = html;
+      document.getElementById('asset-modal').classList.remove('hidden');
+    }
+
+    // 显示道具资产详情弹窗
+    function showPropAsset(idx) {
+      const assets = currentJob?.assets;
+      if (!assets || !assets.props || !assets.props[idx]) return;
+
+      const p = assets.props[idx];
+      document.getElementById('modal-title').textContent = `道具资产: ${p.propName}`;
+
+      let html = `
+        <div class="space-y-4">
+          <!-- 基础描述 -->
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-blue-400">基础描述</h4>
+            <pre class="text-xs text-gray-300 whitespace-pre-wrap">${p.basePrompt || '无'}</pre>
+          </div>
+
+          <!-- 道具信息 -->
+          ${p.materials?.length || p.colors?.length ? `
+          <div class="bg-gray-700 rounded p-3">
+            <div class="grid grid-cols-2 gap-4 text-xs">
+              <div><span class="text-gray-400">材质:</span> ${(p.materials || []).join(', ') || '-'}</div>
+              <div><span class="text-gray-400">颜色:</span> ${(p.colors || []).join(', ') || '-'}</div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- 视角 -->
+          ${p.views ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-green-400">道具视角</h4>
+            <div class="space-y-2">
+              ${Object.entries(p.views).map(([key, v]) => `
+                <details class="bg-gray-800 rounded">
+                  <summary class="cursor-pointer p-2 text-sm text-gray-300 hover:text-white">${key}</summary>
+                  <div class="p-2 border-t border-gray-700">
+                    <pre class="text-xs text-gray-300 whitespace-pre-wrap">${v.prompt || '无'}</pre>
+                    ${v.negative ? `<p class="text-xs text-red-400 mt-2">Negative: ${v.negative}</p>` : ''}
+                  </div>
+                </details>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- Negative -->
+          ${p.negativePrompt ? `
+          <div class="bg-gray-700 rounded p-3">
+            <h4 class="font-medium text-sm mb-2 text-red-400">Negative Prompt</h4>
+            <pre class="text-xs text-gray-400 whitespace-pre-wrap">${p.negativePrompt}</pre>
+          </div>
+          ` : ''}
+        </div>
+      `;
+
+      document.getElementById('modal-content').innerHTML = html;
+      document.getElementById('asset-modal').classList.remove('hidden');
+    }
+
+    // 关闭资产弹窗
+    function closeAssetModal() {
+      document.getElementById('asset-modal').classList.add('hidden');
+    }
+
+    // 点击弹窗外部关闭
+    document.getElementById('asset-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'asset-modal') {
+        closeAssetModal();
+      }
+    });
 
     // Export
     function exportJob(format) {
